@@ -6,7 +6,7 @@
   <p align="center">
     Every tool call, DB query, file read, and RAG retrieval your agent makes is 70-95% boilerplate.<br>
     Headroom compresses it away before it hits the model.<br><br>
-    Works with <b>any agent</b> — coding agents (Claude Code, Codex, Cursor, Aider), custom agents<br>
+    Works with <b>any agent</b> — coding agents (Claude Code, Codex CLI, Cursor, Aider), custom agents<br>
     (LangChain, LangGraph, CrewAI, Agno, OpenAI Agents SDK), or your own Python code.
   </p>
 </p>
@@ -109,6 +109,7 @@ headroom wrap cursor       # Starts proxy + prints Cursor config
 ```
 
 Headroom starts a proxy, points your tool at it, and compresses everything automatically.
+`headroom wrap codex` supports Codex CLI only. Codex Desktop/App is not supported.
 
 ### Multi-agent — SharedContext
 
@@ -142,7 +143,7 @@ Gives your AI tool three MCP tools: `headroom_compress`, `headroom_retrieve`, `h
 | **Agno agents** | Wrap model | `HeadroomAgnoModel(your_model)` |
 | **LangChain** | Wrap model | `HeadroomChatModel(your_llm)` *(experimental)* |
 | **Claude Code** | Wrap | `headroom wrap claude` |
-| **Codex / Aider** | Wrap | `headroom wrap codex` or `headroom wrap aider` |
+| **Codex CLI / Aider** | Wrap | `headroom wrap codex` or `headroom wrap aider` |
 
 **[Full Integration Guide](docs/integration-guide.md)** — detailed setup for every framework.
 

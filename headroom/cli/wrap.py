@@ -221,6 +221,24 @@ def _inject_rtk_instructions(file_path: Path, verbose: bool = False) -> bool:
     return True
 
 
+def _codex_base_url(port: int) -> str:
+    """Get the Headroom base URL for Codex/OpenAI-compatible clients."""
+    return f"http://127.0.0.1:{port}/v1"
+
+
+def _codex_proxy_args(port: int) -> tuple[str, ...]:
+    """Force Codex onto the HTTP Responses transport that Headroom supports."""
+    base_url = _codex_base_url(port)
+    return (
+        "-c",
+        f'openai_base_url="{base_url}"',
+        "--disable",
+        "responses_websockets",
+        "--disable",
+        "responses_websockets_v2",
+    )
+
+
 def _ensure_proxy(
     port: int, no_proxy: bool, *, learn: bool = False
 ) -> subprocess.Popen | None:
@@ -341,7 +359,7 @@ def wrap() -> None:
     \b
     Supported tools:
         headroom wrap claude              # Claude Code (Anthropic)
-        headroom wrap codex               # OpenAI Codex CLI
+        headroom wrap codex               # OpenAI Codex CLI only
         headroom wrap aider               # Aider
         headroom wrap cursor              # Cursor (prints config instructions)
     """
@@ -435,13 +453,21 @@ def claude(port: int, no_rtk: bool, no_proxy: bool, learn: bool, verbose: bool, 
 @click.option("--learn", is_flag=True, help="Enable live traffic learning (patterns saved to AGENTS.md)")
 @click.option("--verbose", "-v", is_flag=True, help="Verbose output")
 @click.argument("codex_args", nargs=-1, type=click.UNPROCESSED)
-def codex(port: int, no_rtk: bool, no_proxy: bool, learn: bool, verbose: bool, codex_args: tuple) -> None:
+def codex(
+    port: int,
+    no_rtk: bool,
+    no_proxy: bool,
+    learn: bool,
+    verbose: bool,
+    codex_args: tuple,
+) -> None:
     """Launch OpenAI Codex CLI through Headroom proxy.
 
     \b
     Sets OPENAI_BASE_URL to route all OpenAI API calls through Headroom.
     Installs rtk and injects instructions into AGENTS.md so Codex uses
     token-optimized commands (60-90% savings on shell output).
+    Supports Codex CLI only. Codex Desktop/App is not supported.
 
     \b
     Examples:
@@ -469,17 +495,23 @@ def codex(port: int, no_rtk: bool, no_proxy: bool, learn: bool, verbose: bool, c
             global_agents = Path.home() / ".codex" / "AGENTS.md"
             _inject_rtk_instructions(global_agents, verbose=verbose)
 
+    base_url = _codex_base_url(port)
     env = os.environ.copy()
-    env["OPENAI_BASE_URL"] = f"http://127.0.0.1:{port}/v1"
+    env["OPENAI_BASE_URL"] = base_url
+    final_args = _codex_proxy_args(port) + codex_args
 
     _launch_tool(
         binary=codex_bin,
-        args=codex_args,
+        args=final_args,
         env=env,
         port=port,
         no_proxy=no_proxy,
         tool_label="CODEX",
-        env_vars_display=[f"OPENAI_BASE_URL=http://127.0.0.1:{port}/v1"],
+        env_vars_display=[
+            f"OPENAI_BASE_URL={base_url}",
+            f'codex -c openai_base_url="{base_url}" --disable responses_websockets --disable responses_websockets_v2',
+            "Note: Headroom supports Codex CLI only; Codex Desktop/App is unsupported",
+        ],
         learn=learn,
     )
 
