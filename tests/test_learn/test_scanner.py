@@ -1,4 +1,4 @@
-"""Tests for _decode_project_path and _greedy_path_decode (issue #47).
+"""Tests for scanner helpers and Codex rollout parsing.
 
 Directory names that contain dots (e.g. ``GitHub.nosync``) or multiple
 hyphens (e.g. ``my-cool-project``) were silently dropped because
@@ -13,7 +13,13 @@ from uuid import uuid4
 
 import pytest
 
-from headroom.learn.scanner import _decode_project_path, _greedy_path_decode
+from headroom.learn.models import ErrorCategory, ProjectInfo
+from headroom.learn.scanner import (
+    CodexScanner,
+    _component_tokenizations,
+    _decode_project_path,
+    _greedy_path_decode,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -116,6 +122,24 @@ class TestGreedyPathDecode:
     def test_empty_parts_returns_none_when_not_exists(self) -> None:
         result = _greedy_path_decode(Path("/nonexistent/path"), [])
         assert result is None
+
+
+class TestComponentTokenizations:
+    """Unit tests for _component_tokenizations."""
+
+    def test_hidden_directory_includes_leading_empty_token(self) -> None:
+        tokenizations = _component_tokenizations(".claude")
+
+        assert [".claude"] in tokenizations
+        assert ["", "claude"] in tokenizations
+
+    def test_mixed_separator_directory_includes_flattened_tokens(self) -> None:
+        tokenizations = _component_tokenizations("my-cool.project")
+
+        assert ["my-cool.project"] in tokenizations
+        assert ["my", "cool.project"] in tokenizations
+        assert ["my-cool", "project"] in tokenizations
+        assert ["my", "cool", "project"] in tokenizations
 
 
 # ---------------------------------------------------------------------------
@@ -237,3 +261,136 @@ class TestDecodeProjectPath:
             assert result == project
         else:
             assert result is None or result == project
+
+
+class TestCodexScanner:
+    """Unit tests for recent Codex scanner additions."""
+
+    def test_iter_session_files_includes_nested_json_and_jsonl(self, tmp_path: Path) -> None:
+        scanner = CodexScanner(codex_dir=tmp_path / ".codex")
+        nested = scanner.sessions_dir / "2026" / "03" / "23"
+        nested.mkdir(parents=True)
+        legacy = scanner.sessions_dir / "legacy.json"
+        rollout = nested / "rollout.jsonl"
+        ignored = nested / "notes.txt"
+        legacy.write_text('{"session": {"id": "legacy"}, "items": []}')
+        rollout.write_text("")
+        ignored.write_text("ignore me")
+
+        paths = scanner._iter_session_files()
+
+        assert paths == sorted([legacy, rollout])
+
+    def test_discover_projects_accepts_nested_rollout_sessions(self, tmp_path: Path) -> None:
+        codex_dir = tmp_path / ".codex"
+        sessions_dir = codex_dir / "sessions" / "nested"
+        sessions_dir.mkdir(parents=True)
+        (sessions_dir / "session.jsonl").write_text("")
+        (codex_dir / "AGENTS.md").write_text("# test")
+        (codex_dir / "instructions.md").write_text("# memory")
+
+        scanner = CodexScanner(codex_dir=codex_dir)
+        projects = scanner.discover_projects()
+
+        assert len(projects) == 1
+        project = projects[0]
+        assert project.name == "codex"
+        assert project.data_path == codex_dir / "sessions"
+        assert project.context_file == codex_dir / "AGENTS.md"
+        assert project.memory_file == codex_dir / "instructions.md"
+
+    def test_scan_jsonl_session_normalizes_rollout_tools_and_errors(self, tmp_path: Path) -> None:
+        jsonl_path = tmp_path / "rollout.jsonl"
+        jsonl_path.write_text(
+            "\n".join(
+                [
+                    '{"type":"session_meta","payload":{"id":"rollout-123"}}',
+                    "not json at all",
+                    (
+                        '{"type":"response_item","payload":{"type":"function_call",'
+                        '"call_id":"call-1","name":"exec_command",'
+                        '"arguments":"{\\"cmd\\": \\"ls missing\\", \\"yield_time_ms\\": 1000}"}}'
+                    ),
+                    (
+                        '{"type":"response_item","payload":{"type":"function_call_output",'
+                        '"call_id":"call-1","output":"{\\"output\\": '
+                        '\\"bash: missing: command not found\\"}"}}'
+                    ),
+                    (
+                        '{"type":"response_item","payload":{"type":"custom_tool_call",'
+                        '"call_id":"call-2","name":"shell",'
+                        '"input":{"command":["bash","-lc","pwd"]}}}'
+                    ),
+                    (
+                        '{"type":"response_item","payload":{"type":"custom_tool_call_output",'
+                        '"call_id":"call-2","output":"{\\"stdout\\": \\"/tmp\\"}"}}'
+                    ),
+                ]
+            )
+            + "\n"
+        )
+
+        session = CodexScanner(codex_dir=tmp_path / ".codex")._scan_jsonl_session(jsonl_path)
+
+        assert session is not None
+        assert session.session_id == "rollout-123"
+        assert len(session.tool_calls) == 2
+
+        first, second = session.tool_calls
+        assert first.name == "Bash"
+        assert first.input_data["command"] == "ls missing"
+        assert first.is_error is True
+        assert first.error_category == ErrorCategory.COMMAND_NOT_FOUND
+        assert first.output == "bash: missing: command not found"
+
+        assert second.name == "Bash"
+        assert second.input_data["command"] == "pwd"
+        assert second.is_error is False
+        assert second.output == '{"stdout": "/tmp"}'
+
+    def test_parse_codex_argument_and_output_variants(self, tmp_path: Path) -> None:
+        scanner = CodexScanner(codex_dir=tmp_path / ".codex")
+
+        assert scanner._parse_codex_arguments({"arguments": '{"cmd":"echo hi"}'}) == {
+            "cmd": "echo hi"
+        }
+        assert scanner._parse_codex_arguments({"input": {"cmd": "echo hi"}}) == {"cmd": "echo hi"}
+        assert scanner._parse_codex_arguments({"arguments": ["bash", "-lc", "pwd"]}) == {
+            "raw": "['bash', '-lc', 'pwd']"
+        }
+
+        assert scanner._parse_codex_output('{"output":"done"}') == "done"
+        assert scanner._parse_codex_output('{"stdout":"done"}') == '{"stdout": "done"}'
+        assert scanner._parse_codex_output({"stdout": "done"}) == "{'stdout': 'done'}"
+
+    def test_scan_project_collects_nested_rollout_sessions(self, tmp_path: Path) -> None:
+        codex_dir = tmp_path / ".codex"
+        nested = codex_dir / "sessions" / "2026" / "03"
+        nested.mkdir(parents=True)
+        jsonl_path = nested / "rollout.jsonl"
+        jsonl_path.write_text(
+            "\n".join(
+                [
+                    '{"type":"session_meta","payload":{"id":"nested-rollout"}}',
+                    (
+                        '{"type":"response_item","payload":{"type":"function_call",'
+                        '"call_id":"call-1","name":"shell",'
+                        '"arguments":"{\\"command\\": [\\"bash\\", \\"-lc\\", \\"pwd\\"]}"}}'
+                    ),
+                    (
+                        '{"type":"response_item","payload":{"type":"function_call_output",'
+                        '"call_id":"call-1","output":"{\\"output\\": \\"/workspace\\"}"}}'
+                    ),
+                ]
+            )
+            + "\n"
+        )
+
+        scanner = CodexScanner(codex_dir=codex_dir)
+        sessions = scanner.scan_project(
+            ProjectInfo(name="codex", project_path=tmp_path, data_path=codex_dir / "sessions")
+        )
+
+        assert len(sessions) == 1
+        assert sessions[0].session_id == "nested-rollout"
+        assert sessions[0].tool_calls[0].input_data["command"] == "pwd"

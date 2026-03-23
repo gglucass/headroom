@@ -19,6 +19,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from click.testing import CliRunner
 
 from headroom.learn.analyzer import SessionAnalyzer
 from headroom.learn.models import (
@@ -26,6 +27,7 @@ from headroom.learn.models import (
     Recommendation,
     RecommendationTarget,
 )
+from headroom.cli.main import main
 from headroom.learn.scanner import _greedy_path_decode
 from headroom.learn.writer import ClaudeCodeWriter, CodexWriter
 
@@ -113,6 +115,46 @@ class TestFalsePositiveFiltering:
             "FileNotFoundError: [Errno 2] No such file or directory: '/bad/path'"
         )
         assert is_error_content("bash: unknown_cmd: command not found")
+
+
+class TestLearnCli:
+    """Cover CLI filtering and fallback messaging."""
+
+    def test_learn_lists_available_projects_when_requested_path_not_found(self, tmp_path):
+        requested = tmp_path / "missing-project"
+        requested.mkdir()
+        discovered = tmp_path / "known-project"
+        discovered.mkdir()
+
+        project = ProjectInfo(name="known-project", project_path=discovered, data_path=tmp_path / "data")
+
+        class StubScanner:
+            def discover_projects(self):
+                return [project]
+
+            def scan_project(self, project_info):
+                return []
+
+        class StubWriter:
+            def write(self, recommendations, project_info, dry_run=True):
+                raise AssertionError("write should not be called for unmatched projects")
+
+        runner = CliRunner()
+        with patch("headroom.learn.analyzer._detect_default_model", return_value="gpt-4o"):
+            with patch("headroom.learn.analyzer.SessionAnalyzer"):
+                with patch(
+                    "headroom.cli.learn._get_scanner_writer",
+                    return_value=(StubScanner(), StubWriter()),
+                ):
+                    result = runner.invoke(
+                        main,
+                        ["learn", "--agent", "codex", "--project", str(requested)],
+                    )
+
+        assert result.exit_code == 0, result.output
+        assert f"No project data found for {requested.resolve()}" in result.output
+        assert "Available discovered projects:" in result.output
+        assert f"[codex] {discovered}" in result.output
 
 
 # =============================================================================
