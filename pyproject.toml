@@ -60,6 +60,7 @@ proxy = [
     "httpx[http2]>=0.24.0",
     "openai>=2.14.0",             # OpenAI API format support
     "mcp>=1.0.0",                 # MCP server (headroom_compress, retrieve, stats)
+    "zstandard>=0.23.0",          # Decode zstd-compressed OpenAI-compatible requests
 ]
 # AST-based code compression (tree-sitter)
 code = [
@@ -166,6 +167,7 @@ dev = [
     "fastapi>=0.100.0",
     "uvicorn>=0.23.0",
     "httpx[http2]>=0.24.0",
+    "zstandard>=0.23.0",
     "ollama>=0.4.0",
     "langchain-ollama>=0.2.0",
     "hnswlib>=0.8.0",
