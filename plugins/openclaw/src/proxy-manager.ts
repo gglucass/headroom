@@ -7,6 +7,10 @@
  * - Localhost-only network access (127.0.0.1 / localhost)
  */
 import { spawn } from "node:child_process";
+import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 export interface ProxyManagerConfig {
   proxyUrl?: string;
@@ -25,6 +29,14 @@ export interface ProxyProbeResult {
   reachable: boolean;
   isHeadroom: boolean;
   reason?: string;
+}
+
+interface LaunchSpec {
+  label: string;
+  command: string;
+  args: string[];
+  checkCommand: string;
+  checkArgs: string[];
 }
 
 const defaultLogger: ProxyManagerLogger = {
@@ -108,17 +120,124 @@ export class ProxyManager {
     const parsed = new URL(proxyUrl);
     const host = parsed.hostname;
     const port = parsed.port || "80";
+    const specs = this.buildLaunchSpecs(host, port);
+    const errors: string[] = [];
 
-    try {
-      const child = spawn("headroom", ["proxy", "--host", host, "--port", port], {
-        detached: true,
-        stdio: "ignore",
+    for (const spec of specs) {
+      if (!this.canExecute(spec.checkCommand, spec.checkArgs)) {
+        this.logger.debug(`Launcher unavailable: ${spec.label}`);
+        continue;
+      }
+
+      try {
+        const child = spawn(spec.command, spec.args, {
+          detached: true,
+          stdio: "ignore",
+        });
+        child.unref();
+        this.logger.info(`Auto-start launcher selected: ${spec.label}`);
+        return;
+      } catch (error) {
+        errors.push(`${spec.label}: ${String(error)}`);
+      }
+    }
+
+    throw new Error(
+      "No usable Headroom launcher found. Tried PATH, local npm, global npm, and Python. " +
+        "Install headroom-ai (npm or pip) and ensure one launcher is available.\n" +
+        (errors.length > 0 ? `Launch errors: ${errors.join("; ")}` : ""),
+    );
+  }
+
+  private buildLaunchSpecs(host: string, port: string): LaunchSpec[] {
+    const commonArgs = ["proxy", "--host", host, "--port", port];
+    const specs: LaunchSpec[] = [];
+
+    // 1) PATH
+    specs.push({
+      label: "PATH: headroom",
+      command: "headroom",
+      args: commonArgs,
+      checkCommand: "headroom",
+      checkArgs: ["--version"],
+    });
+
+    // 2) Local npm install (inside plugin install path)
+    const moduleDir = dirname(fileURLToPath(import.meta.url)); // .../dist
+    const packageRoot = dirname(moduleDir);
+    const localBinDir = join(packageRoot, "node_modules", ".bin");
+    const localBins = process.platform === "win32"
+      ? [join(localBinDir, "headroom.cmd"), join(localBinDir, "headroom")]
+      : [join(localBinDir, "headroom")];
+    for (const localBin of localBins) {
+      if (!existsSync(localBin)) continue;
+      specs.push({
+        label: `Local npm: ${localBin}`,
+        command: localBin,
+        args: commonArgs,
+        checkCommand: localBin,
+        checkArgs: ["--version"],
       });
-      child.unref();
-    } catch (error) {
-      throw new Error(
-        `Failed to spawn headroom proxy command. Ensure "headroom" is installed and on PATH. (${String(error)})`,
-      );
+    }
+
+    // 3) Global npm install
+    const npmPrefix = this.getNpmGlobalPrefix();
+    if (npmPrefix) {
+      const globalBins = process.platform === "win32"
+        ? [join(npmPrefix, "headroom.cmd"), join(npmPrefix, "headroom")]
+        : [join(npmPrefix, "bin", "headroom"), join(npmPrefix, "headroom")];
+
+      for (const globalBin of globalBins) {
+        if (!existsSync(globalBin)) continue;
+        specs.push({
+          label: `Global npm: ${globalBin}`,
+          command: globalBin,
+          args: commonArgs,
+          checkCommand: globalBin,
+          checkArgs: ["--version"],
+        });
+      }
+    }
+
+    // 4) Python module fallback
+    for (const pyCmd of ["python", "python3", "py"]) {
+      specs.push({
+        label: `Python: ${pyCmd} -m headroom.cli`,
+        command: pyCmd,
+        args: ["-m", "headroom.cli", ...commonArgs],
+        checkCommand: pyCmd,
+        checkArgs: ["-c", "import headroom"],
+      });
+    }
+
+    return specs;
+  }
+
+  private canExecute(command: string, args: string[]): boolean {
+    try {
+      const result = spawnSync(command, args, {
+        stdio: "ignore",
+        timeout: 5000,
+      });
+      if (result.error) return false;
+      return result.status === 0;
+    } catch {
+      return false;
+    }
+  }
+
+  private getNpmGlobalPrefix(): string | null {
+    try {
+      const result = spawnSync("npm", ["prefix", "-g"], {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+        timeout: 5000,
+      });
+      if (result.error || result.status !== 0) return null;
+      const prefix = (result.stdout ?? "").trim();
+      return prefix.length > 0 ? prefix : null;
+    } catch {
+      return null;
     }
   }
 }

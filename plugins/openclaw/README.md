@@ -32,6 +32,11 @@ This plugin auto-starts `headroom proxy` when needed. OpenClaw treats process-la
 ```
 
 `proxyUrl` must be localhost (`127.0.0.1` or `localhost`). If the proxy is not running, the plugin will try to start it with `headroom proxy --host ... --port ...`.
+Auto-start launch order is:
+1. `headroom` from `PATH`
+2. local npm bin (`node_modules/.bin/headroom`)
+3. global npm bin
+4. Python module (`python -m headroom.cli proxy ...`)
 
 ## Required Proxy Setup
 
