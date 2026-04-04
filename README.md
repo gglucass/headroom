@@ -390,6 +390,40 @@ pip install "headroom-ai[langchain]"   # LangChain (experimental)
 pip install "headroom-ai[evals]"       # Evaluation framework only
 ```
 
+### Container images (GHCR tags)
+
+- supported platforms: `linux/amd64`, `linux/arm64`
+- tags `:code` - image with Code-Aware Compression (AST-based) i.e. `pip install "headroom-ai[proxy,code]"`
+- tags `:slim` - image with distorless base
+
+| Tag                 |                                                      | Extras       | Docker Bake target          |
+|---------------------|------------------------------------------------------|--------------|-----------------------------|
+| `<version>`         | ```ghcr.io/chopratejas/headroom:<version>```         | `proxy`      | `runtime`                   |
+| `latest`            | ```ghcr.io/chopratejas/headroom:latest```            | `proxy`      | `runtime`                   |
+| `nonroot`           | ```ghcr.io/chopratejas/headroom:nonroot```           | `proxy`      | `runtime-nonroot`           |
+| `code`              | ```ghcr.io/chopratejas/headroom:code```              | `proxy,code` | `runtime-code`              |
+| `code-nonroot`      | ```ghcr.io/chopratejas/headroom:code-nonroot```      | `proxy,code` | `runtime-code-nonroot`      |
+| `slim`              | ```ghcr.io/chopratejas/headroom:slim```              | `proxy`      | `runtime-slim`              |
+| `slim-nonroot`      | ```ghcr.io/chopratejas/headroom:slim-nonroot```      | `proxy`      | `runtime-slim-nonroot`      |
+| `code-slim`         | ```ghcr.io/chopratejas/headroom:code-slim```         | `proxy,code` | `runtime-code-slim`         |
+| `code-slim-nonroot` | ```ghcr.io/chopratejas/headroom:code-slim-nonroot``` | `proxy,code` | `runtime-code-slim-nonroot` |
+
+### Docker Bake
+
+```bash
+# List all available build targets
+docker buildx bake --list targets
+
+# Build default image locally (proxy + nonroot)
+docker buildx bake runtime-default
+
+# Build one variant and load to local Docker image store
+docker buildx bake runtime-code-slim-nonroot \
+  --set runtime-code-slim-nonroot.platform=linux/amd64 \
+  --set runtime-code-slim-nonroot.tags=headroom:local \
+  --load
+```
+
 Python 3.10+
 
 ---
