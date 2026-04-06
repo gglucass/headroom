@@ -751,7 +751,12 @@ class OpenAIHandlerMixin:
                 f"(backend '{self.anthropic_backend.name}' not used for Responses API)"
             )
 
-        url = f"{self.OPENAI_API_URL}/v1/responses"
+        # Route to correct endpoint based on auth mode.
+        # ChatGPT session auth (codex login) uses chatgpt.com, not api.openai.com.
+        if headers.get("chatgpt-account-id"):
+            url = "https://chatgpt.com/backend-api/codex/responses"
+        else:
+            url = f"{self.OPENAI_API_URL}/v1/responses"
 
         try:
             if stream:
@@ -870,11 +875,6 @@ class OpenAIHandlerMixin:
         else:
             await websocket.accept()
 
-        # Build upstream WebSocket URL (http→ws, https→wss)
-        base = self.OPENAI_API_URL
-        ws_base = base.replace("https://", "wss://").replace("http://", "ws://")
-        upstream_url = f"{ws_base}/v1/responses"
-
         # Forward all client headers except hop-by-hop / per-connection headers.
         # These are WebSocket handshake mechanics that the `websockets` library
         # generates fresh for the upstream connection — forwarding them would conflict.
@@ -898,10 +898,28 @@ class OpenAIHandlerMixin:
             if k.lower() not in _skip_headers:
                 upstream_headers[k] = v
 
+        # Detect ChatGPT session auth vs API key auth.
+        # Codex sends `ChatGPT-Account-ID` header when using `codex login`
+        # (ChatGPT OAuth), which requires routing to chatgpt.com, not api.openai.com.
+        _lower_headers = {k.lower(): v for k, v in upstream_headers.items()}
+        is_chatgpt_auth = "chatgpt-account-id" in _lower_headers
+
+        # Build upstream WebSocket URL based on auth mode
+        if is_chatgpt_auth:
+            # ChatGPT session auth → route to chatgpt.com backend
+            upstream_url = "wss://chatgpt.com/backend-api/codex/responses"
+            logger.debug(
+                f"[{request_id}] WS: ChatGPT session auth detected, routing to chatgpt.com"
+            )
+        else:
+            # API key auth → route to configured OpenAI API URL
+            base = self.OPENAI_API_URL
+            ws_base = base.replace("https://", "wss://").replace("http://", "ws://")
+            upstream_url = f"{ws_base}/v1/responses"
+
         # Ensure Authorization header is present — fall back to OPENAI_API_KEY env var.
         # Safety net for clients that don't forward auth headers via WebSocket upgrade.
-        _has_auth = "authorization" in {k.lower() for k in upstream_headers}
-        if not _has_auth:
+        if "authorization" not in _lower_headers:
             api_key = os.environ.get("OPENAI_API_KEY")
             if api_key:
                 upstream_headers["Authorization"] = f"Bearer {api_key}"
@@ -912,9 +930,10 @@ class OpenAIHandlerMixin:
                     f"OPENAI_API_KEY not set — upstream will likely reject"
                 )
 
-        # Ensure the required beta header is present — OpenAI returns 500 without it
-        if "openai-beta" not in {k.lower() for k in upstream_headers}:
-            upstream_headers["OpenAI-Beta"] = "responses-api=v1"
+        # Ensure the required beta header is present — OpenAI returns 500 without it.
+        # Codex sends `responses_websockets=2026-02-06`; only inject if missing entirely.
+        if "openai-beta" not in _lower_headers:
+            upstream_headers["OpenAI-Beta"] = "responses_websockets=2026-02-06"
 
         logger.debug(
             f"[{request_id}] WS upstream headers: "
@@ -927,6 +946,7 @@ class OpenAIHandlerMixin:
             first_msg_raw = await websocket.receive_text()
 
             # --- Optional: compress the input in the first message ---
+            body: dict[str, Any] = {}
             try:
                 body = json.loads(first_msg_raw)
                 input_data = body.get("input")
@@ -997,55 +1017,78 @@ class OpenAIHandlerMixin:
             # Windows system cert store, causing HTTP 500 on wss:// connections.
             use_ssl: bool | None = True if upstream_url.startswith("wss://") else None
 
-            async with websockets.connect(
-                upstream_url,
-                additional_headers=upstream_headers,
-                subprotocols=(
-                    [websockets.Subprotocol(p) for p in client_subprotocols]
-                    if client_subprotocols and hasattr(websockets, "Subprotocol")
-                    else client_subprotocols or None
-                ),
-                ssl=use_ssl,
-            ) as upstream:
-                # Send (potentially compressed) first message
-                await upstream.send(first_msg_raw)
+            ws_connected = False
+            try:
+                async with websockets.connect(
+                    upstream_url,
+                    additional_headers=upstream_headers,
+                    subprotocols=(
+                        [websockets.Subprotocol(p) for p in client_subprotocols]
+                        if client_subprotocols and hasattr(websockets, "Subprotocol")
+                        else client_subprotocols or None
+                    ),
+                    ssl=use_ssl,
+                ) as upstream:
+                    ws_connected = True
+                    # Send (potentially compressed) first message
+                    await upstream.send(first_msg_raw)
 
-                # Bidirectional relay
-                async def _client_to_upstream() -> None:
-                    try:
-                        while True:
-                            msg = await websocket.receive_text()
-                            await upstream.send(msg)
-                    except Exception as relay_err:
-                        if "WebSocketDisconnect" not in type(relay_err).__name__:
-                            logger.debug(
-                                f"[{request_id}] WS client→upstream relay ended: {relay_err}"
-                            )
-                        with contextlib.suppress(Exception):
-                            await upstream.close()
+                    # Bidirectional relay
+                    async def _client_to_upstream() -> None:
+                        try:
+                            while True:
+                                msg = await websocket.receive_text()
+                                await upstream.send(msg)
+                        except Exception as relay_err:
+                            if "WebSocketDisconnect" not in type(relay_err).__name__:
+                                logger.debug(
+                                    f"[{request_id}] WS client→upstream relay ended: {relay_err}"
+                                )
+                            with contextlib.suppress(Exception):
+                                await upstream.close()
 
-                async def _upstream_to_client() -> None:
-                    try:
-                        async for msg in upstream:
-                            if isinstance(msg, str):
-                                await websocket.send_text(msg)
-                            elif isinstance(msg, bytes):
-                                await websocket.send_bytes(msg)
-                            else:
-                                await websocket.send_text(str(msg))
-                    except Exception as relay_err:
-                        if "WebSocketDisconnect" not in type(relay_err).__name__:
-                            logger.debug(
-                                f"[{request_id}] WS upstream→client relay ended: {relay_err}"
-                            )
-                    finally:
-                        with contextlib.suppress(Exception):
-                            await websocket.close()
+                    async def _upstream_to_client() -> None:
+                        try:
+                            async for msg in upstream:
+                                if isinstance(msg, str):
+                                    await websocket.send_text(msg)
+                                elif isinstance(msg, bytes):
+                                    await websocket.send_bytes(msg)
+                                else:
+                                    await websocket.send_text(str(msg))
+                        except Exception as relay_err:
+                            if "WebSocketDisconnect" not in type(relay_err).__name__:
+                                logger.debug(
+                                    f"[{request_id}] WS upstream→client relay ended: {relay_err}"
+                                )
+                        finally:
+                            with contextlib.suppress(Exception):
+                                await websocket.close()
 
-                await asyncio.gather(
-                    _client_to_upstream(),
-                    _upstream_to_client(),
-                    return_exceptions=True,
+                    await asyncio.gather(
+                        _client_to_upstream(),
+                        _upstream_to_client(),
+                        return_exceptions=True,
+                    )
+
+            except Exception as ws_err:
+                if ws_connected:
+                    # WS was established but broke mid-stream — re-raise
+                    raise
+                # WS upgrade failed (HTTP 500 from OpenAI is common).
+                # Fall back to HTTP POST streaming and relay SSE events
+                # back over the client WebSocket transparently.
+                _ws_detail = str(ws_err)
+                if hasattr(ws_err, "response"):
+                    resp_body = getattr(getattr(ws_err, "response", None), "body", b"")
+                    if resp_body:
+                        _ws_detail += f" | {resp_body[:300].decode('utf-8', errors='replace')}"
+                logger.warning(
+                    f"[{request_id}] WS upstream failed ({_ws_detail}), "
+                    f"falling back to HTTP POST streaming"
+                )
+                await self._ws_http_fallback(
+                    websocket, body, first_msg_raw, upstream_headers, request_id
                 )
 
             # Record metrics
@@ -1077,6 +1120,126 @@ class OpenAIHandlerMixin:
                 logger.error(f"[{request_id}] WS proxy error: {error_detail}")
             with contextlib.suppress(Exception):
                 await websocket.close(code=1011, reason=str(e)[:120])
+
+    async def _ws_http_fallback(
+        self,
+        websocket: WebSocket,
+        body: dict[str, Any],
+        first_msg_raw: str,
+        upstream_headers: dict[str, str],
+        request_id: str,
+    ) -> None:
+        """Fall back to HTTP POST streaming when upstream WS fails.
+
+        Converts the WS ``response.create`` message to an HTTP POST to
+        ``/v1/responses?stream=true``, reads SSE events, and relays each
+        ``data:`` line as a WS text message to the client.  This makes
+        Codex work immediately instead of exhausting its WS retry budget.
+        """
+        # Route to correct endpoint based on auth mode
+        _lower = {k.lower() for k in upstream_headers}
+        if "chatgpt-account-id" in _lower:
+            http_url = "https://chatgpt.com/backend-api/codex/responses"
+        else:
+            http_url = f"{self.OPENAI_API_URL}/v1/responses"
+
+        # Build HTTP body from the WS response.create payload.
+        # WS messages use {"type": "response.create", "response": {...}} wrapper.
+        # The HTTP POST endpoint expects the inner response object directly.
+        http_body: dict[str, Any]
+        try:
+            parsed = json.loads(first_msg_raw) if isinstance(first_msg_raw, str) else body
+        except (json.JSONDecodeError, TypeError):
+            parsed = body
+
+        # Unwrap the response.create envelope if present
+        if isinstance(parsed.get("response"), dict):
+            http_body = parsed["response"]
+        else:
+            http_body = parsed
+
+        # Ensure streaming is enabled so we get SSE events
+        http_body["stream"] = True
+
+        # Build HTTP headers from the upstream headers (already stripped of WS
+        # hop-by-hop headers by the caller).
+        http_headers = dict(upstream_headers)
+        http_headers["content-type"] = "application/json"
+
+        logger.debug(f"[{request_id}] WS→HTTP fallback POST to {http_url}")
+
+        try:
+            async with self.http_client.stream(
+                "POST",
+                http_url,
+                headers=http_headers,
+                json=http_body,
+                timeout=120.0,
+            ) as response:
+                if response.status_code != 200:
+                    error_body = b""
+                    async for chunk in response.aiter_bytes():
+                        error_body += chunk
+                        if len(error_body) > 2000:
+                            break
+                    error_text = error_body.decode("utf-8", errors="replace")
+                    logger.error(
+                        f"[{request_id}] WS→HTTP fallback got {response.status_code}: "
+                        f"{error_text[:500]}"
+                    )
+                    # Send error as WS message so client sees it
+                    error_event = {
+                        "type": "error",
+                        "error": {
+                            "type": "server_error",
+                            "message": f"Upstream returned {response.status_code}",
+                        },
+                    }
+                    await websocket.send_text(json.dumps(error_event))
+                    return
+
+                # Relay SSE events as WS text messages
+                buffer = ""
+                async for chunk in response.aiter_text():
+                    buffer += chunk
+                    while "\n" in buffer:
+                        line, buffer = buffer.split("\n", 1)
+                        line = line.strip()
+                        if not line:
+                            continue
+                        if line.startswith("data: "):
+                            data = line[6:]
+                            if data == "[DONE]":
+                                continue
+                            try:
+                                await websocket.send_text(data)
+                            except Exception:
+                                return
+                        elif line.startswith("event: "):
+                            # SSE event type — skip, the data line contains the type
+                            continue
+
+                # Flush any remaining data in buffer
+                for line in buffer.strip().splitlines():
+                    line = line.strip()
+                    if line.startswith("data: ") and line[6:] != "[DONE]":
+                        with contextlib.suppress(Exception):
+                            await websocket.send_text(line[6:])
+
+        except Exception as http_err:
+            logger.error(f"[{request_id}] WS→HTTP fallback failed: {http_err}")
+            error_event = {
+                "type": "error",
+                "error": {
+                    "type": "server_error",
+                    "message": f"HTTP fallback failed: {http_err!s}"[:200],
+                },
+            }
+            with contextlib.suppress(Exception):
+                await websocket.send_text(json.dumps(error_event))
+        finally:
+            with contextlib.suppress(Exception):
+                await websocket.close()
 
     async def handle_compress(self, request: Request) -> JSONResponse:
         """Compress messages without calling an LLM.
