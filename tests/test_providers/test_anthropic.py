@@ -22,6 +22,11 @@ class TestAnthropicTokenCounting:
         count = counter.count_messages(messages)
         assert count > 0
 
+    def test_count_text_allows_literal_special_tokens(self, anthropic_provider):
+        counter = anthropic_provider.get_token_counter("claude-3-5-sonnet-20241022")
+        count = counter.count_text("prefix <|fim_suffix|> suffix")
+        assert count > 0
+
 
 class TestAnthropicModelLimits:
     @pytest.fixture

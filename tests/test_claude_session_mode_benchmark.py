@@ -338,9 +338,9 @@ def test_determine_winners_includes_no_cache_counterfactual() -> None:
 def test_resolve_checkpoint_dir_namespaces_sampling_mode() -> None:
     base = Path("benchmark_results") / "checkpoints"
 
-    assert resolve_checkpoint_dir(base).name == "v4__ttl_5m__full"
+    assert resolve_checkpoint_dir(base).name == "v5__ttl_5m__full"
     assert (
-        resolve_checkpoint_dir(base, recent_turns_per_session=200).name == "v4__ttl_5m__recent_200"
+        resolve_checkpoint_dir(base, recent_turns_per_session=200).name == "v5__ttl_5m__recent_200"
     )
 
 
@@ -519,6 +519,11 @@ def test_synthetic_token_mode_busts_cache_while_cache_mode_stays_stable(monkeypa
 
     assert token.cache_bust_turns == 1
     assert token.rewrite_turns >= 1
+    assert token.busting_rewrite_turns >= 1
+    assert token.non_cache_eligible_rewrite_turns == 0
+    assert token.stable_replay_rewrite_turns == 0
     assert token.retroactive_rewrite_turns >= 1
     assert cache.cache_bust_turns == 0
+    assert cache.busting_rewrite_turns == 0
+    assert cache.non_cache_eligible_rewrite_turns == 0
     assert cache.retroactive_rewrite_turns == 0

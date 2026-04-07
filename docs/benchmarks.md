@@ -228,6 +228,50 @@ This benchmark compares `token` vs `cache` proxy modes on the same synthetic con
 
 Use it when you want a clean PR-vs-`main` comparison on the same transcript slice.
 
+For a deterministic cache-busting proof case, run:
+
+```bash
+python benchmarks/synthetic_token_cache_bust_report.py
+```
+
+That synthetic replay forces `token` mode to retroactively rewrite a prior tool result on the second turn while `cache` mode remains stable. Use it to verify the simulator can distinguish:
+
+- `token`: history rewrite + cache bust
+- `cache`: no rewrite + no bust
+
+For a reproducible local report bundle that combines:
+
+- full real-session replay summaries
+- local-only processed real input/output excerpts
+- synthetic token-bust proof
+- synthetic long-form stress tests
+
+run:
+
+```bash
+python benchmarks/cache_validation_bundle.py --workers 1 --output-dir benchmark_results/cache_validation_bundle_full
+```
+
+Notes:
+
+- By default the bundle is redaction-safe for sharing:
+  - real processed reports redact transcript-derived content excerpts
+  - manifest paths are redacted
+- To include local processed content excerpts for private review on your own machine:
+
+```bash
+python benchmarks/cache_validation_bundle.py --workers 1 --include-content
+```
+
+- The bundle writes:
+  - `index.html` / `index.md`: top-level summary and links
+  - `bundle_manifest.json`: runtime metadata + corpus fingerprint
+  - `real/`: full real-session replay reports
+  - `real_processed/`: processed before/after excerpts from real transcripts
+  - `synthetic_token_bust/`: minimal explicit cache-bust proof
+  - `synthetic_long_suite/`: long deterministic rewrite/TTL scenarios
+- Checkpoints are scoped under the bundle output directory and fingerprinted by the selected corpus so stale runs do not contaminate new results.
+
 The Claude session benchmark replays local transcript data from `~/.claude/projects`
 through `baseline`, `token`, and `cache` modes. It estimates raw tokens, cache
 read/write tokens, paid input/output costs, and prompt-window winners under two

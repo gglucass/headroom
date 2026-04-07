@@ -250,7 +250,13 @@ class AnthropicTokenCounter(TokenCounter):
 
         if self._encoding:
             # tiktoken with ~1.1x multiplier for Claude
-            base_count = len(self._encoding.encode(text))
+            try:
+                base_count = len(self._encoding.encode(text))
+            except ValueError:
+                # Real tool output can legitimately contain strings that look like
+                # tiktoken special tokens (for example FIM markers in code spans).
+                # Treat them as ordinary text for estimation instead of failing.
+                base_count = len(self._encoding.encode(text, disallowed_special=()))
             return int(base_count * 1.1)
 
         # Character-based fallback

@@ -102,6 +102,9 @@ class ModeSummary:
     cache_bust_turns: int = 0
     ttl_expiry_turns: int = 0
     rewrite_turns: int = 0
+    stable_replay_rewrite_turns: int = 0
+    busting_rewrite_turns: int = 0
+    non_cache_eligible_rewrite_turns: int = 0
     retroactive_rewrite_turns: int = 0
     latest_turn_only_rewrite_turns: int = 0
     turns: list[TurnMetrics] = field(default_factory=list)
@@ -157,6 +160,9 @@ IMPACT_DIRECTION = {
     "cache_bust_turns": "lower",
     "ttl_expiry_turns": "lower",
     "rewrite_turns": "lower",
+    "stable_replay_rewrite_turns": "lower",
+    "busting_rewrite_turns": "lower",
+    "non_cache_eligible_rewrite_turns": "lower",
     "retroactive_rewrite_turns": "lower",
     "latest_turn_only_rewrite_turns": "lower",
 }
@@ -248,6 +254,9 @@ def _mode_summary_from_dict(data: dict[str, Any]) -> ModeSummary:
         cache_bust_turns=data.get("cache_bust_turns", 0),
         ttl_expiry_turns=data.get("ttl_expiry_turns", 0),
         rewrite_turns=data.get("rewrite_turns", 0),
+        stable_replay_rewrite_turns=data.get("stable_replay_rewrite_turns", 0),
+        busting_rewrite_turns=data.get("busting_rewrite_turns", 0),
+        non_cache_eligible_rewrite_turns=data.get("non_cache_eligible_rewrite_turns", 0),
         retroactive_rewrite_turns=data.get("retroactive_rewrite_turns", 0),
         latest_turn_only_rewrite_turns=data.get("latest_turn_only_rewrite_turns", 0),
         turns=turns,
@@ -462,7 +471,7 @@ def resolve_checkpoint_dir(
     recent_turns_per_session: int | None = None,
     cache_ttl_minutes: int = DEFAULT_CACHE_TTL_MINUTES,
 ) -> Path:
-    suffix_parts = ["v4", f"ttl_{cache_ttl_minutes}m"]
+    suffix_parts = ["v5", f"ttl_{cache_ttl_minutes}m"]
     if recent_turns_per_session:
         suffix_parts.append(f"recent_{recent_turns_per_session}")
     else:
@@ -906,6 +915,8 @@ class _PendingTurn:
     raw_input_tokens: int
     request_messages: list[dict[str, Any]]
     forwarded: list[dict[str, Any]]
+    rewrite: bool
+    retroactive_rewrite: bool
 
 
 def _cache_gap_within_ttl(
@@ -1021,6 +1032,9 @@ def _merge_mode_summary(target: ModeSummary, source: ModeSummary) -> None:
     target.cache_bust_turns += source.cache_bust_turns
     target.ttl_expiry_turns += source.ttl_expiry_turns
     target.rewrite_turns += source.rewrite_turns
+    target.stable_replay_rewrite_turns += source.stable_replay_rewrite_turns
+    target.busting_rewrite_turns += source.busting_rewrite_turns
+    target.non_cache_eligible_rewrite_turns += source.non_cache_eligible_rewrite_turns
     target.retroactive_rewrite_turns += source.retroactive_rewrite_turns
     target.latest_turn_only_rewrite_turns += source.latest_turn_only_rewrite_turns
 
@@ -1169,6 +1183,25 @@ def _simulate_single_replay_mode(
                 summary.retroactive_rewrite_turns += 1
             else:
                 summary.latest_turn_only_rewrite_turns += 1
+            prior_forwarded_for_rewrite = pending.forwarded if pending is not None else previous_forwarded
+            prior_timestamp_for_rewrite = (
+                pending.turn.timestamp if pending is not None else previous_timestamp
+            )
+            if (
+                prior_timestamp_for_rewrite is not None
+                and _cache_gap_within_ttl(turn.timestamp, prior_timestamp_for_rewrite, ttl=ttl)
+                and prior_forwarded_for_rewrite
+            ):
+                prefix_preserved = (
+                    len(forwarded) >= len(prior_forwarded_for_rewrite)
+                    and forwarded[: len(prior_forwarded_for_rewrite)] == prior_forwarded_for_rewrite
+                )
+                if prefix_preserved:
+                    summary.stable_replay_rewrite_turns += 1
+                else:
+                    summary.busting_rewrite_turns += 1
+            else:
+                summary.non_cache_eligible_rewrite_turns += 1
         if pending is not None:
             _apply_turn_metrics(
                 pending.summary,
@@ -1203,6 +1236,8 @@ def _simulate_single_replay_mode(
             raw_input_tokens=raw_input_tokens,
             request_messages=copy.deepcopy(conversation),
             forwarded=forwarded,
+            rewrite=rewrite,
+            retroactive_rewrite=retroactive_rewrite,
         )
         conversation.append(turn.assistant_message)
         conversation_token_total = raw_input_tokens + tokenizer.count_message(
@@ -1513,7 +1548,7 @@ def print_console_report(dataset: DatasetSummary, summaries: dict[str, ModeSumma
     print(f"Sampling: {dataset.sampling_note}")
     print()
     print(
-        "mode      raw_tok      cache_tok    cache_read   cache_write   paid_in      paid_out     busts   ttl_exp   rewrite   retro_rw   total_cost    no_cache"
+        "mode      raw_tok      cache_tok    cache_read   cache_write   paid_in      paid_out     busts   ttl_exp   rewrite   stable_rw  bust_rw   noncache_rw  retro_rw   total_cost    no_cache"
     )
     for mode in ("baseline", PROXY_MODE_TOKEN, PROXY_MODE_CACHE):
         summary = summaries[mode]
@@ -1522,7 +1557,9 @@ def print_console_report(dataset: DatasetSummary, summaries: dict[str, ModeSumma
             f"{summary.cache_read_tokens:>11,} {summary.cache_write_tokens:>12,} "
             f"{summary.regular_input_tokens:>10,} {summary.output_tokens:>12,} "
             f"{summary.cache_bust_turns:>7,} {summary.ttl_expiry_turns:>9,} "
-            f"{summary.rewrite_turns:>9,} {summary.retroactive_rewrite_turns:>10,} "
+            f"{summary.rewrite_turns:>9,} {summary.stable_replay_rewrite_turns:>10,} "
+            f"{summary.busting_rewrite_turns:>8,} {summary.non_cache_eligible_rewrite_turns:>12,} "
+            f"{summary.retroactive_rewrite_turns:>10,} "
             f"{format_currency(summary.total_cost_usd):>11} "
             f"{format_currency(summary.no_cache_total_cost_usd):>11}"
         )
@@ -1549,6 +1586,12 @@ def print_console_report(dataset: DatasetSummary, summaries: dict[str, ModeSumma
             f"({int(impact['regular_input_tokens']['delta']):,}), "
             f"rewrite={impact['rewrite_turns']['impact']} "
             f"({int(impact['rewrite_turns']['delta']):,}), "
+            f"stable_rw={impact['stable_replay_rewrite_turns']['impact']} "
+            f"({int(impact['stable_replay_rewrite_turns']['delta']):,}), "
+            f"bust_rw={impact['busting_rewrite_turns']['impact']} "
+            f"({int(impact['busting_rewrite_turns']['delta']):,}), "
+            f"noncache_rw={impact['non_cache_eligible_rewrite_turns']['impact']} "
+            f"({int(impact['non_cache_eligible_rewrite_turns']['delta']):,}), "
             f"retro_rw={impact['retroactive_rewrite_turns']['impact']} "
             f"({int(impact['retroactive_rewrite_turns']['delta']):,}), "
             f"window={impact['prompt_window_with_cache']['impact']} "
@@ -1602,6 +1645,9 @@ def build_report_markdown(
                     f"{summary.cache_bust_turns:,}",
                     f"{summary.ttl_expiry_turns:,}",
                     f"{summary.rewrite_turns:,}",
+                    f"{summary.stable_replay_rewrite_turns:,}",
+                    f"{summary.busting_rewrite_turns:,}",
+                    f"{summary.non_cache_eligible_rewrite_turns:,}",
                     f"{summary.retroactive_rewrite_turns:,}",
                     f"{summary.latest_turn_only_rewrite_turns:,}",
                     f"{summary.prompt_window_with_cache:,}",
@@ -1622,6 +1668,9 @@ def build_report_markdown(
             ("prompt_window_without_cache_reads", "Window Without Cache Reads"),
             ("cache_bust_turns", "Cache Bust Turns"),
             ("rewrite_turns", "Rewrite Turns"),
+            ("stable_replay_rewrite_turns", "Stable Replay Rewrite Turns"),
+            ("busting_rewrite_turns", "Busting Rewrite Turns"),
+            ("non_cache_eligible_rewrite_turns", "Non-Cache-Eligible Rewrite Turns"),
             ("retroactive_rewrite_turns", "Retroactive Rewrite Turns"),
             ("latest_turn_only_rewrite_turns", "Latest-Turn-Only Rewrite Turns"),
         ):
@@ -1665,8 +1714,8 @@ def build_report_markdown(
             "",
             "## Summary",
             "",
-            "| Mode | Raw Tokens | Cache Tokens | Cache Read | Cache Write | Paid Input Tokens | Paid Output Tokens | Paid Input Cost | Cache Read Cost | Cache Write Cost | Paid Output Cost | Total Cost | No-Cache Total Cost | Cache Bust Turns | TTL Expiry Turns | Rewrite Turns | Retroactive Rewrite Turns | Latest-Turn-Only Rewrite Turns | Window Tokens (Cache Counted) | Window Tokens (Cache Reads Excluded) |",
-            "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
+            "| Mode | Raw Tokens | Cache Tokens | Cache Read | Cache Write | Paid Input Tokens | Paid Output Tokens | Paid Input Cost | Cache Read Cost | Cache Write Cost | Paid Output Cost | Total Cost | No-Cache Total Cost | Cache Bust Turns | TTL Expiry Turns | Rewrite Turns | Stable Replay Rewrite Turns | Busting Rewrite Turns | Non-Cache-Eligible Rewrite Turns | Retroactive Rewrite Turns | Latest-Turn-Only Rewrite Turns | Window Tokens (Cache Counted) | Window Tokens (Cache Reads Excluded) |",
+            "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
             *rows,
             "",
             "## Impact vs Baseline",
@@ -1712,6 +1761,9 @@ def build_report_html(
             f"<td>{summary.cache_bust_turns:,}</td>"
             f"<td>{summary.ttl_expiry_turns:,}</td>"
             f"<td>{summary.rewrite_turns:,}</td>"
+            f"<td>{summary.stable_replay_rewrite_turns:,}</td>"
+            f"<td>{summary.busting_rewrite_turns:,}</td>"
+            f"<td>{summary.non_cache_eligible_rewrite_turns:,}</td>"
             f"<td>{summary.retroactive_rewrite_turns:,}</td>"
             f"<td>{summary.latest_turn_only_rewrite_turns:,}</td>"
             f"<td>{format_currency(summary.total_cost_usd)}</td>"
@@ -1732,6 +1784,9 @@ def build_report_html(
             ("prompt_window_without_cache_reads", "Window Without Cache Reads"),
             ("cache_bust_turns", "Cache Bust Turns"),
             ("rewrite_turns", "Rewrite Turns"),
+            ("stable_replay_rewrite_turns", "Stable Replay Rewrite Turns"),
+            ("busting_rewrite_turns", "Busting Rewrite Turns"),
+            ("non_cache_eligible_rewrite_turns", "Non-Cache-Eligible Rewrite Turns"),
             ("retroactive_rewrite_turns", "Retroactive Rewrite Turns"),
             ("latest_turn_only_rewrite_turns", "Latest-Turn-Only Rewrite Turns"),
         ):
@@ -1868,7 +1923,7 @@ def build_report_html(
         <table>
           <thead>
             <tr>
-              <th>Mode</th><th>Raw Tokens</th><th>Cache Tokens</th><th>Cache Read</th><th>Cache Write</th><th>Paid Input</th><th>Paid Output</th><th>Cache Busts</th><th>TTL Expiry</th><th>Rewrite Turns</th><th>Retroactive Rewrites</th><th>Latest-Turn-Only Rewrites</th><th>Total Cost</th><th>No-Cache Cost</th><th>Window With Cache</th><th>Window Without Cache Reads</th>
+              <th>Mode</th><th>Raw Tokens</th><th>Cache Tokens</th><th>Cache Read</th><th>Cache Write</th><th>Paid Input</th><th>Paid Output</th><th>Cache Busts</th><th>TTL Expiry</th><th>Rewrite Turns</th><th>Stable Replay Rewrites</th><th>Busting Rewrites</th><th>Non-Cache-Eligible Rewrites</th><th>Retroactive Rewrites</th><th>Latest-Turn-Only Rewrites</th><th>Total Cost</th><th>No-Cache Cost</th><th>Window With Cache</th><th>Window Without Cache Reads</th>
             </tr>
           </thead>
           <tbody>
