@@ -13,19 +13,26 @@ This plugin can auto-start a local `headroom proxy` when needed. OpenClaw treats
 
 ## Local Development Install (Detection-Friendly)
 
-If you are testing from this repo, run npm install/build from the plugin directory so local launcher detection aligns with runtime paths:
+If you are testing from this repo, run npm install/build from the plugin directory so local launcher detection aligns with runtime paths. The build now emits a self-contained `dist/` plugin root, so either of these linked installs works:
 
 ```bash
 cd plugins/openclaw
 npm install
 npm run build
+openclaw plugins install --dangerously-force-unsafe-install --link dist
+```
+
+Or, from inside `dist/`:
+
+```bash
+cd plugins/openclaw/dist
 openclaw plugins install --dangerously-force-unsafe-install --link .
 ```
 
 Why this matters:
 - The plugin checks launchers in this order: PATH -> local npm bin -> global npm -> python.
-- "local npm bin" means `plugins/openclaw/node_modules/.bin/headroom` relative to the installed plugin root.
-- Using `--link .` from `plugins/openclaw` keeps that local path aligned for detection.
+- "local npm bin" means `plugins/openclaw/node_modules/.bin/headroom` relative to the source checkout.
+- Using `--link dist` (or `--link .` from `dist/`) still keeps runtime code adjacent to the checkout, and launcher detection falls back to PATH/global/python if a local npm bin is not present under the installed root.
 - If you install from a `.tgz`, local npm bin may not exist in the installed extension and detection will fall back to PATH/global/python.
 
 ## Configure
