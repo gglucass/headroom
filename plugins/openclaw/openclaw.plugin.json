@@ -1,5 +1,6 @@
 {
   "id": "headroom",
+  "kind": "context-engine",
   "uiHints": {
     "proxyUrl": {
       "label": "Proxy URL",

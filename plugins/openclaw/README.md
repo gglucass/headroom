@@ -21,22 +21,39 @@ This plugin can auto-start a local `headroom proxy` when needed. OpenClaw treats
 
 ## Local Development Install (Detection-Friendly)
 
-If you are testing from this repo, run npm install/build from the plugin directory so local launcher detection aligns with runtime paths:
+If you are testing from this repo, run npm install/build from the plugin directory so local launcher detection aligns with runtime paths. These linked installs are supported:
 
 ```bash
 cd plugins/openclaw
 npm install
 npm run build
 openclaw plugins install --dangerously-force-unsafe-install --link .
+openclaw plugins install --dangerously-force-unsafe-install --link dist
+```
+
+From the repo root, install the plugin directory explicitly:
+
+```bash
+openclaw plugins install --dangerously-force-unsafe-install --link ./plugins/openclaw
+```
+
+Or, from inside `dist/`:
+
+```bash
+cd plugins/openclaw/dist
+openclaw plugins install --dangerously-force-unsafe-install --link .
 ```
 
 Why this matters:
 - The plugin checks launchers in this order: PATH -> local npm bin -> global npm -> python.
-- "local npm bin" means `plugins/openclaw/node_modules/.bin/headroom` relative to the installed plugin root.
-- Using `--link .` from `plugins/openclaw` keeps that local path aligned for detection.
+- "local npm bin" means `plugins/openclaw/node_modules/.bin/headroom` relative to the source checkout.
+- Using `--link dist` (or `--link .` from `dist/`) still keeps runtime code adjacent to the checkout, and launcher detection falls back to PATH/global/python if a local npm bin is not present under the installed root.
+- `plugins/openclaw` also carries a no-op hook shim so OpenClaw's hook-pack fallback treats the path as valid instead of emitting a misleading `package.json missing openclaw.hooks` warning.
 - If you install from a `.tgz`, local npm bin may not exist in the installed extension and detection will fall back to PATH/global/python.
 
 ## Configure
+
+Install automatically selects the `contextEngine` slot for `headroom` on current OpenClaw releases. If you need to switch back manually, set `plugins.slots.contextEngine` to `"legacy"` or another engine id.
 
 ```json
 {

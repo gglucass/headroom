@@ -43,23 +43,23 @@ class TestConnectionPoolConfig:
         assert timeout.write == 300.0
         assert timeout.pool == 10.0
 
-    @pytest.mark.asyncio
-    async def test_async_client_with_limits(self):
+    def test_async_client_with_limits(self):
         """Test AsyncClient accepts connection pool limits."""
-        limits = httpx.Limits(
-            max_connections=500,
-            max_keepalive_connections=100,
-        )
-        async with httpx.AsyncClient(
-            limits=limits,
-            timeout=httpx.Timeout(10.0),
-        ) as client:
-            # Verify client was created successfully with our limits
-            # (httpx doesn't expose limits directly, but creation succeeds)
-            assert client is not None
-            # The limits object we passed should have our values
-            assert limits.max_connections == 500
-            assert limits.max_keepalive_connections == 100
+
+        async def _run():
+            limits = httpx.Limits(
+                max_connections=500,
+                max_keepalive_connections=100,
+            )
+            async with httpx.AsyncClient(
+                limits=limits,
+                timeout=httpx.Timeout(10.0),
+            ) as client:
+                assert client is not None
+                assert limits.max_connections == 500
+                assert limits.max_keepalive_connections == 100
+
+        asyncio.run(_run())
 
 
 class TestHTTP2Config:
@@ -72,29 +72,28 @@ class TestHTTP2Config:
         h2_available = importlib.util.find_spec("h2") is not None
 
         if h2_available:
-            # Should work if h2 is installed
             client = httpx.Client(http2=True)
             assert client._base_url is not None
             client.close()
         else:
-            # Should raise if h2 not installed
             with pytest.raises(ImportError):
                 httpx.Client(http2=True)
 
-    @pytest.mark.asyncio
-    async def test_async_client_http2(self):
+    def test_async_client_http2(self):
         """Test AsyncClient with HTTP/2 enabled."""
         import importlib.util
 
         if not importlib.util.find_spec("h2"):
             pytest.skip("h2 package not installed")
 
-        async with httpx.AsyncClient(
-            http2=True,
-            limits=httpx.Limits(max_connections=100),
-        ) as client:
-            # Client should be configured for HTTP/2
-            assert client is not None
+        async def _run():
+            async with httpx.AsyncClient(
+                http2=True,
+                limits=httpx.Limits(max_connections=100),
+            ) as client:
+                assert client is not None
+
+        asyncio.run(_run())
 
 
 class TestProxyConfigDataclass:
@@ -144,79 +143,81 @@ class TestProxyConfigDataclass:
 class TestConcurrencyPatterns:
     """Test async concurrency patterns used in proxy."""
 
-    @pytest.mark.asyncio
-    async def test_semaphore_for_backpressure(self):
+    def test_semaphore_for_backpressure(self):
         """Test semaphore pattern for limiting concurrent requests."""
-        semaphore = asyncio.Semaphore(3)
-        active = []
-        completed = []
 
-        async def task(task_id: int):
-            async with semaphore:
-                active.append(task_id)
-                # Verify we never exceed semaphore limit
-                assert len(active) <= 3
-                await asyncio.sleep(0.01)
-                active.remove(task_id)
-                completed.append(task_id)
+        async def _run():
+            semaphore = asyncio.Semaphore(3)
+            active = []
+            completed = []
 
-        # Run 10 tasks with max 3 concurrent
-        tasks = [task(i) for i in range(10)]
-        await asyncio.gather(*tasks)
+            async def task(task_id: int):
+                async with semaphore:
+                    active.append(task_id)
+                    assert len(active) <= 3
+                    await asyncio.sleep(0.01)
+                    active.remove(task_id)
+                    completed.append(task_id)
 
-        assert len(completed) == 10
+            tasks = [task(i) for i in range(10)]
+            await asyncio.gather(*tasks)
+            assert len(completed) == 10
 
-    @pytest.mark.asyncio
-    async def test_connection_reuse_pattern(self):
+        asyncio.run(_run())
+
+    def test_connection_reuse_pattern(self):
         """Test that single client instance is reused (not recreated)."""
-        clients_created = []
 
-        class MockProxyWithClient:
-            def __init__(self):
-                self.http_client = None
+        async def _run():
+            clients_created = []
 
-            async def startup(self):
-                self.http_client = httpx.AsyncClient(
-                    limits=httpx.Limits(max_connections=100),
-                )
-                clients_created.append(self.http_client)
+            class MockProxyWithClient:
+                def __init__(self):
+                    self.http_client = None
 
-            async def shutdown(self):
-                if self.http_client:
-                    await self.http_client.aclose()
+                async def startup(self):
+                    self.http_client = httpx.AsyncClient(
+                        limits=httpx.Limits(max_connections=100),
+                    )
+                    clients_created.append(self.http_client)
 
-            async def make_request(self, url: str):
-                # Should reuse the same client, not create new one
-                return self.http_client
+                async def shutdown(self):
+                    if self.http_client:
+                        await self.http_client.aclose()
 
-        proxy = MockProxyWithClient()
-        await proxy.startup()
+                async def make_request(self, url: str):
+                    return self.http_client
 
-        # Multiple requests should return same client instance
-        client1 = await proxy.make_request("http://example1.com")
-        client2 = await proxy.make_request("http://example2.com")
-        client3 = await proxy.make_request("http://example3.com")
+            proxy = MockProxyWithClient()
+            await proxy.startup()
 
-        assert client1 is client2 is client3
-        assert len(clients_created) == 1  # Only one client created
+            client1 = await proxy.make_request("http://example1.com")
+            client2 = await proxy.make_request("http://example2.com")
+            client3 = await proxy.make_request("http://example3.com")
 
-        await proxy.shutdown()
+            assert client1 is client2 is client3
+            assert len(clients_created) == 1
+
+            await proxy.shutdown()
+
+        asyncio.run(_run())
 
 
 class TestTimeoutOverrides:
     """Test per-request timeout overrides."""
 
-    @pytest.mark.asyncio
-    async def test_request_level_timeout_override(self):
+    def test_request_level_timeout_override(self):
         """Test that timeout can be overridden per-request."""
-        async with httpx.AsyncClient(
-            timeout=httpx.Timeout(10.0),  # Default timeout
-        ):
-            # Per-request override should work
-            override_timeout = httpx.Timeout(120.0)
-            # Just verify the timeout object is valid
-            assert override_timeout.read == 120.0
-            assert override_timeout.connect == 120.0
+
+        async def _run():
+            async with httpx.AsyncClient(
+                timeout=httpx.Timeout(10.0),
+            ):
+                override_timeout = httpx.Timeout(120.0)
+                assert override_timeout.read == 120.0
+                assert override_timeout.connect == 120.0
+
+        asyncio.run(_run())
 
 
 class TestWorkerConfiguration:
@@ -226,7 +227,6 @@ class TestWorkerConfiguration:
         """Test that uvicorn accepts workers parameter."""
         uvicorn = pytest.importorskip("uvicorn")
 
-        # Verify the Config class accepts workers
         config = uvicorn.Config(
             app="app:app",
             workers=4,
@@ -240,5 +240,4 @@ class TestWorkerConfiguration:
         uvicorn = pytest.importorskip("uvicorn")
 
         config = uvicorn.Config(app="app:app")
-        # Default should be None (single process)
         assert config.workers is None or config.workers == 1

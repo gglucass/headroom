@@ -1,3 +1,10 @@
+/**
+ * Core types for the Headroom TypeScript SDK.
+ * Error classes moved to errors.ts — re-exported here for backwards compatibility.
+ */
+
+import type { CompressionHooks } from "./hooks.js";
+
 // --- Message types (OpenAI chat format) ---
 
 export interface TextContentPart {
@@ -58,6 +65,8 @@ export interface CompressOptions {
   client?: HeadroomClientInterface;
   /** Token budget — compress to fit within this limit. Used for compaction. */
   tokenBudget?: number;
+  /** Compression hooks for pre/post processing. */
+  hooks?: CompressionHooks;
 }
 
 export interface CompressResult {
@@ -89,40 +98,22 @@ export interface HeadroomClientInterface {
   ): Promise<CompressResult>;
 }
 
-// --- Errors ---
+// --- Re-export errors for backwards compatibility ---
 
-export class HeadroomError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "HeadroomError";
-  }
-}
-
-export class HeadroomConnectionError extends HeadroomError {
-  constructor(message: string) {
-    super(message);
-    this.name = "HeadroomConnectionError";
-  }
-}
-
-export class HeadroomAuthError extends HeadroomError {
-  constructor(message: string) {
-    super(message);
-    this.name = "HeadroomAuthError";
-  }
-}
-
-export class HeadroomCompressError extends HeadroomError {
-  statusCode: number;
-  errorType: string;
-
-  constructor(statusCode: number, errorType: string, message: string) {
-    super(message);
-    this.name = "HeadroomCompressError";
-    this.statusCode = statusCode;
-    this.errorType = errorType;
-  }
-}
+export {
+  HeadroomError,
+  HeadroomConnectionError,
+  HeadroomAuthError,
+  HeadroomCompressError,
+  ConfigurationError,
+  ProviderError,
+  StorageError,
+  TokenizationError,
+  CacheError,
+  ValidationError,
+  TransformError,
+  mapProxyError,
+} from "./errors.js";
 
 // --- Proxy response (internal) ---
 

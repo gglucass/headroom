@@ -7,11 +7,12 @@
   "types": "./dist/index.d.ts",
   "files": [
     "dist",
+    "hook-shim",
     "openclaw.plugin.json",
     "README.md"
   ],
   "scripts": {
-    "build": "tsup",
+    "build": "tsup && node prepare-dist.mjs",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit"
@@ -34,12 +35,9 @@
     "vitest": "^2.0.0"
   },
   "openclaw": {
-    "hooks": {
-      "contextEngine": "dist/index.js",
-      "tools": [
-        "dist/index.js"
-      ]
-    },
+    "hooks": [
+      "./hook-shim"
+    ],
     "extensions": [
       "./dist/index.js"
     ],

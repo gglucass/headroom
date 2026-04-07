@@ -153,7 +153,7 @@ from .transforms import (
     TransformPipeline,
 )
 
-__version__ = "0.5.18"
+__version__ = "0.5.19"
 
 __all__ = [
     # Main client

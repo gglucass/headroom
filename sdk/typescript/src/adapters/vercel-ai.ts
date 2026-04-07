@@ -1,6 +1,21 @@
+import { createRequire } from "node:module";
 import { compress } from "../compress.js";
 import type { CompressOptions, CompressResult } from "../types.js";
 import { vercelToOpenAI, openAIToVercel } from "../utils/format.js";
+
+/**
+ * Minimal structural type for Vercel AI SDK language models.
+ * Compatible with both LanguageModelV1 (@ai-sdk/provider <=1.x)
+ * and LanguageModelV3 (@ai-sdk/provider >=2.x).
+ */
+interface LanguageModel {
+  readonly specificationVersion: string;
+  readonly provider: string;
+  readonly modelId: string;
+  doGenerate: (...args: any[]) => any;
+  doStream: (...args: any[]) => any;
+  [key: string]: any;
+}
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 type VercelMessage = any;
@@ -67,4 +82,43 @@ export async function compressVercelMessages(
     ...result,
     messages: vercelMessages,
   };
+}
+
+/**
+ * Wrap a Vercel AI SDK language model with Headroom compression.
+ * Convenience wrapper around `wrapLanguageModel` + `headroomMiddleware`.
+ *
+ * @example
+ * ```typescript
+ * import { withHeadroom } from 'headroom-ai/vercel-ai';
+ * import { openai } from '@ai-sdk/openai';
+ * import { generateText } from 'ai';
+ *
+ * const model = withHeadroom(openai('gpt-4o'));
+ * const { text } = await generateText({ model, messages });
+ * ```
+ */
+export function withHeadroom<T extends LanguageModel>(
+  model: T,
+  options: CompressOptions = {},
+): T {
+  let wrapLanguageModel: (opts: {
+    model: T;
+    middleware: any;
+  }) => T;
+
+  try {
+    const require = createRequire(import.meta.url);
+    const ai = require("ai");
+    wrapLanguageModel = ai.wrapLanguageModel;
+  } catch {
+    throw new Error(
+      'withHeadroom() requires the "ai" package. Install it with: npm install ai',
+    );
+  }
+
+  return wrapLanguageModel({
+    model,
+    middleware: headroomMiddleware(options),
+  });
 }

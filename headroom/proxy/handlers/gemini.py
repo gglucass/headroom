@@ -341,12 +341,15 @@ class GeminiHandlerMixin:
                         f"[{request_id}] Failed to extract cached tokens from Gemini response: {e}"
                     )
 
+                uncached_input_tokens = max(0, total_input_tokens - cache_read_tokens)
+
                 if self.cost_tracker:
                     self.cost_tracker.record_tokens(
                         model,
                         tokens_saved,
                         optimized_tokens,
                         cache_read_tokens=cache_read_tokens,
+                        uncached_tokens=uncached_input_tokens,
                     )
 
                 await self.metrics.record_request(
@@ -359,6 +362,7 @@ class GeminiHandlerMixin:
                     overhead_ms=optimization_latency,
                     waste_signals=waste_signals_dict,
                     cache_read_tokens=cache_read_tokens,
+                    uncached_input_tokens=uncached_input_tokens,
                 )
 
                 if tokens_saved > 0:

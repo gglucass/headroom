@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   headroomMiddleware,
   compressVercelMessages,
+  withHeadroom,
 } from "../../src/adapters/vercel-ai.js";
 
 const mockFetch = vi.fn();
@@ -169,5 +170,137 @@ describe("compressVercelMessages", () => {
     });
     expect(result.messages[1].role).toBe("user");
     expect(result.messages[1].content[0].type).toBe("text");
+  });
+});
+
+describe("withHeadroom", () => {
+  beforeEach(() => {
+    mockFetch.mockReset();
+  });
+
+  it("returns a LanguageModelV3 with correct provider and modelId", () => {
+    const fakeModel = {
+      specificationVersion: "v3" as const,
+      provider: "openai",
+      modelId: "gpt-4o",
+      supportedUrls: {},
+      doGenerate: vi.fn(),
+      doStream: vi.fn(),
+    };
+
+    const wrapped = withHeadroom(fakeModel as any, {
+      baseUrl: "http://localhost:8787",
+    });
+
+    expect(wrapped.specificationVersion).toBe("v3");
+    expect(wrapped.modelId).toBe("gpt-4o");
+    expect(wrapped.provider).toBe("openai");
+  });
+
+  it("triggers compression on doGenerate", async () => {
+    mockFetch.mockResolvedValueOnce(
+      mockCompressResponse([{ role: "user", content: "compressed" }]),
+    );
+
+    const fakeModel = {
+      specificationVersion: "v3" as const,
+      provider: "test-provider",
+      modelId: "test-model",
+      supportedUrls: {},
+      doGenerate: vi.fn().mockResolvedValue({
+        text: "response",
+        usage: { promptTokens: 10, completionTokens: 5 },
+        finishReason: "stop",
+        rawCall: { rawPrompt: null, rawSettings: {} },
+      }),
+      doStream: vi.fn(),
+    };
+
+    const wrapped = withHeadroom(fakeModel as any, {
+      baseUrl: "http://localhost:8787",
+    });
+
+    await wrapped.doGenerate({
+      prompt: [
+        { role: "user", content: [{ type: "text", text: "hello world" }] },
+      ],
+      mode: { type: "regular" },
+      inputFormat: "prompt",
+    } as any);
+
+    // Proxy should have been called for compression
+    expect(mockFetch).toHaveBeenCalledOnce();
+    const [url] = mockFetch.mock.calls[0];
+    expect(url).toContain("/v1/compress");
+  });
+
+  it("passes options through to headroomMiddleware", async () => {
+    mockFetch.mockResolvedValueOnce(
+      mockCompressResponse([{ role: "user", content: "x" }]),
+    );
+
+    const fakeModel = {
+      specificationVersion: "v3" as const,
+      provider: "test",
+      modelId: "test-model",
+      supportedUrls: {},
+      doGenerate: vi.fn().mockResolvedValue({
+        text: "ok",
+        usage: { promptTokens: 5, completionTokens: 3 },
+        finishReason: "stop",
+        rawCall: { rawPrompt: null, rawSettings: {} },
+      }),
+      doStream: vi.fn(),
+    };
+
+    const wrapped = withHeadroom(fakeModel as any, {
+      baseUrl: "http://localhost:8787",
+      model: "claude-sonnet-4-5-20250929",
+    });
+
+    await wrapped.doGenerate({
+      prompt: [
+        { role: "user", content: [{ type: "text", text: "hi" }] },
+      ],
+      mode: { type: "regular" },
+      inputFormat: "prompt",
+    } as any);
+
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(body.model).toBe("claude-sonnet-4-5-20250929");
+  });
+
+  it("falls back when proxy is down", async () => {
+    mockFetch.mockRejectedValueOnce(new TypeError("fetch failed"));
+
+    const fakeModel = {
+      specificationVersion: "v3" as const,
+      provider: "test",
+      modelId: "test-model",
+      supportedUrls: {},
+      doGenerate: vi.fn().mockResolvedValue({
+        text: "ok",
+        usage: { promptTokens: 5, completionTokens: 3 },
+        finishReason: "stop",
+        rawCall: { rawPrompt: null, rawSettings: {} },
+      }),
+      doStream: vi.fn(),
+    };
+
+    const wrapped = withHeadroom(fakeModel as any, {
+      baseUrl: "http://localhost:8787",
+      fallback: true,
+    });
+
+    // Should not throw — fallback returns original messages
+    await wrapped.doGenerate({
+      prompt: [
+        { role: "user", content: [{ type: "text", text: "hello" }] },
+      ],
+      mode: { type: "regular" },
+      inputFormat: "prompt",
+    } as any);
+
+    expect(fakeModel.doGenerate).toHaveBeenCalled();
   });
 });

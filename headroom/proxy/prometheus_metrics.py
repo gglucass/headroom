@@ -81,6 +81,7 @@ class PrometheusMetrics:
                 "cache_write_1h_tokens": 0,
                 "cache_write_5m_requests": 0,
                 "cache_write_1h_requests": 0,
+                "uncached_input_tokens": 0,
                 "requests": 0,
                 "hit_requests": 0,  # requests with cache_read > 0
                 "bust_count": 0,
@@ -94,6 +95,10 @@ class PrometheusMetrics:
         self.prefix_freeze_busts_avoided: int = 0
         self.prefix_freeze_tokens_preserved: int = 0
         self.prefix_freeze_compression_foregone: int = 0
+
+        # Cache bust tracking: how many tokens lost their cache discount due to compression
+        self.cache_bust_tokens_lost: int = 0
+        self.cache_bust_count: int = 0
 
         # Cumulative savings history (timestamp → cumulative tokens saved)
         self.savings_history: list[tuple[str, int]] = []
@@ -190,6 +195,7 @@ class PrometheusMetrics:
                     pc["cache_write_5m_requests"] += 1
                 if cache_write_1h_tokens > 0:
                     pc["cache_write_1h_requests"] += 1
+                pc["uncached_input_tokens"] += uncached_input_tokens
                 pc["requests"] += 1
                 if cache_read_tokens > 0:
                     pc["hit_requests"] += 1
@@ -253,6 +259,12 @@ class PrometheusMetrics:
                 total_input_tokens=total_input_tokens,
                 total_input_cost_usd=total_input_cost_usd,
             )
+
+    async def record_cache_bust(self, tokens_lost: int) -> None:
+        """Record tokens that lost their cache discount due to compression."""
+        async with self._lock:
+            self.cache_bust_tokens_lost += tokens_lost
+            self.cache_bust_count += 1
 
     async def record_rate_limited(self):
         async with self._lock:

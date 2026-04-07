@@ -1225,6 +1225,20 @@ class AnthropicHandlerMixin:
                     cw_5m_tokens, cw_1h_tokens = self._extract_anthropic_cache_ttl_metrics(usage)
                     uncached_input_tokens = usage.get("input_tokens", 0)
 
+                # Track cache bust: tokens that lost their cache discount due to compression.
+                # If we had X tokens cached last turn and only Y hit cache this turn,
+                # then (X - Y) tokens were busted by our modifications.
+                expected_cached = prefix_tracker._cached_token_count
+                if expected_cached > 0 and tokens_saved > 0:
+                    bust_tokens = max(0, expected_cached - cr_tokens)
+                    if bust_tokens > 0:
+                        logger.info(
+                            f"[{request_id}] CACHE-BUST: "
+                            f"expected_cached={expected_cached:,} actual_read={cr_tokens:,} "
+                            f"tokens_lost={bust_tokens:,} tokens_saved={tokens_saved:,}"
+                        )
+                        await self.metrics.record_cache_bust(bust_tokens)
+
                 # Update prefix cache tracker for next turn
                 next_original_messages = copy.deepcopy(original_client_messages)
                 next_forwarded_messages = copy.deepcopy(optimized_messages)

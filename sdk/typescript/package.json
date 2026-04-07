@@ -51,6 +51,16 @@
         "types": "./dist/adapters/anthropic.d.cts",
         "default": "./dist/adapters/anthropic.cjs"
       }
+    },
+    "./gemini": {
+      "import": {
+        "types": "./dist/adapters/gemini.d.ts",
+        "default": "./dist/adapters/gemini.js"
+      },
+      "require": {
+        "types": "./dist/adapters/gemini.d.cts",
+        "default": "./dist/adapters/gemini.cjs"
+      }
     }
   },
   "engines": {

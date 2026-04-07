@@ -172,6 +172,15 @@ class TelemetryBeacon:
         except Exception:
             logger.debug("Beacon: failed to extract effectiveness metrics", exc_info=True)
 
+        # --- Cache bust tracking (tokens lost due to compression breaking prefix cache) ---
+        try:
+            cvc = stats.get("prefix_cache", {}).get("compression_vs_cache", {})
+            bust_tokens = cvc.get("tokens_lost_to_cache_bust", 0)
+            if bust_tokens > 0:
+                payload["cache_bust_tokens"] = bust_tokens
+        except Exception:
+            logger.debug("Beacon: failed to extract cache bust metrics", exc_info=True)
+
         # --- Performance overhead (how much latency Headroom adds) ---
         try:
             overhead = stats.get("overhead", {})
