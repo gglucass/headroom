@@ -265,7 +265,17 @@ class GeminiHandlerMixin:
                 _compression_failed = True
                 logger.warning(f"[{request_id}] Gemini optimization failed: {e}")
 
-        tokens_saved = max(0, original_tokens - optimized_tokens)
+        # Guard: if "optimization" inflated tokens, revert to originals
+        if optimized_tokens > original_tokens:
+            logger.warning(
+                f"[{request_id}] Optimization inflated tokens "
+                f"({original_tokens} -> {optimized_tokens}), reverting to original messages"
+            )
+            optimized_messages = messages
+            optimized_tokens = original_tokens
+            transforms_applied = []
+
+        tokens_saved = original_tokens - optimized_tokens
         optimization_latency = (time.time() - start_time) * 1000
 
         # Query Echo: disabled — hurts prefix caching in long conversations.

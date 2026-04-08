@@ -298,7 +298,17 @@ class OpenAIHandlerMixin:
                 # Flag compression failure for observability
                 _compression_failed = True
 
-        tokens_saved = max(0, original_tokens - optimized_tokens)
+        # Guard: if "optimization" inflated tokens, revert to originals
+        if optimized_tokens > original_tokens:
+            logger.warning(
+                f"[{request_id}] Optimization inflated tokens "
+                f"({original_tokens} -> {optimized_tokens}), reverting to original messages"
+            )
+            optimized_messages = original_messages
+            optimized_tokens = original_tokens
+            transforms_applied = []
+
+        tokens_saved = original_tokens - optimized_tokens
         optimization_latency = (time.time() - start_time) * 1000
 
         # Hook: post_compress
@@ -795,7 +805,17 @@ class OpenAIHandlerMixin:
             except Exception as e:
                 logger.warning(f"[{request_id}] Responses API optimization failed: {e}")
 
-        tokens_saved = max(0, original_tokens - optimized_tokens)
+        # Guard: if "optimization" inflated tokens, revert to originals
+        if optimized_tokens > original_tokens:
+            logger.warning(
+                f"[{request_id}] Optimization inflated tokens "
+                f"({original_tokens} -> {optimized_tokens}), reverting to original messages"
+            )
+            optimized_messages = messages
+            optimized_tokens = original_tokens
+            transforms_applied = []
+
+        tokens_saved = original_tokens - optimized_tokens
         optimization_latency = (time.time() - start_time) * 1000
 
         # Convert compressed messages back to Responses API items
@@ -1060,7 +1080,15 @@ class OpenAIHandlerMixin:
                             if instructions and opt and opt[0].get("role") == "system":
                                 body["instructions"] = opt[0]["content"]
                                 opt = opt[1:]
-                            body["input"] = messages_to_responses_items(opt, input_data, preserved)
+                            if result.tokens_after <= original_tokens:
+                                body["input"] = messages_to_responses_items(
+                                    opt, input_data, preserved
+                                )
+                            else:
+                                logger.warning(
+                                    f"[{request_id}] WS optimization inflated tokens "
+                                    f"({original_tokens} -> {result.tokens_after}), reverting"
+                                )
                             tokens_saved = max(0, original_tokens - result.tokens_after)
                             first_msg_raw = json.dumps(body)
                             logger.info(

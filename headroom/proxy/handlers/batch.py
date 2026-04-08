@@ -158,9 +158,18 @@ class BatchHandlerMixin:
                 # Use pipeline's token counts for consistency with pipeline logs
                 original_tokens = result.tokens_before
                 optimized_tokens = result.tokens_after
+                # Guard: if "optimization" inflated tokens, revert to originals
+                if optimized_tokens > original_tokens:
+                    logger.warning(
+                        f"[{request_id}] Batch item optimization inflated tokens "
+                        f"({original_tokens} -> {optimized_tokens}), reverting"
+                    )
+                    optimized_messages = messages
+                    optimized_tokens = original_tokens
+
                 total_original_tokens += original_tokens
                 total_optimized_tokens += optimized_tokens
-                tokens_saved = max(0, original_tokens - optimized_tokens)
+                tokens_saved = original_tokens - optimized_tokens
                 total_tokens_saved += tokens_saved
 
                 # CCR Tool Injection: Inject retrieval tool if compression occurred
