@@ -175,11 +175,20 @@ class RollingWindow(Transform):
             else:
                 insert_idx = len(result_messages)
 
+            # Match content format (Strands uses list-of-blocks, Anthropic uses string)
+            _uses_block_format = any(
+                isinstance(m.get("content"), list)
+                for m in result_messages
+                if m.get("role") == "user"
+            )
+            marker_content: str | list[dict[str, str]] = (
+                [{"type": "text", "text": marker}] if _uses_block_format else marker
+            )
             result_messages.insert(
                 insert_idx,
                 {
                     "role": "user",
-                    "content": marker,
+                    "content": marker_content,
                 },
             )
 

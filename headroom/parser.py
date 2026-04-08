@@ -267,14 +267,21 @@ def find_tool_units(messages: list[dict[str, Any]]) -> list[tuple[int, list[int]
                 tool_response_map[tc_id] = i
 
         # Anthropic format: role="user" with content blocks containing tool_result
+        # Also handles Strands SDK format: {"toolResult": {"toolUseId": "..."}}
         if msg.get("role") == "user":
             content = msg.get("content")
             if isinstance(content, list):
                 for block in content:
-                    if isinstance(block, dict) and block.get("type") == "tool_result":
-                        tc_id = block.get("tool_use_id")
-                        if tc_id:
-                            tool_response_map[tc_id] = i
+                    if isinstance(block, dict):
+                        if block.get("type") == "tool_result":
+                            tc_id = block.get("tool_use_id")
+                            if tc_id:
+                                tool_response_map[tc_id] = i
+                        elif "toolResult" in block:
+                            # Strands SDK format
+                            tc_id = block["toolResult"].get("toolUseId")
+                            if tc_id:
+                                tool_response_map[tc_id] = i
 
     # Find assistant messages with tool calls
     for i, msg in enumerate(messages):
@@ -292,13 +299,20 @@ def find_tool_units(messages: list[dict[str, Any]]) -> list[tuple[int, list[int]
                     response_indices.append(tool_response_map[tc_id])
 
         # Anthropic format: content blocks with type=tool_use
+        # Also handles Strands SDK format: {"toolUse": {"toolUseId": "..."}}
         content = msg.get("content")
         if isinstance(content, list):
             for block in content:
-                if isinstance(block, dict) and block.get("type") == "tool_use":
-                    tc_id = block.get("id")
-                    if tc_id and tc_id in tool_response_map:
-                        response_indices.append(tool_response_map[tc_id])
+                if isinstance(block, dict):
+                    if block.get("type") == "tool_use":
+                        tc_id = block.get("id")
+                        if tc_id and tc_id in tool_response_map:
+                            response_indices.append(tool_response_map[tc_id])
+                    elif "toolUse" in block:
+                        # Strands SDK format
+                        tc_id = block["toolUse"].get("toolUseId")
+                        if tc_id and tc_id in tool_response_map:
+                            response_indices.append(tool_response_map[tc_id])
 
         if response_indices:
             # Use set to deduplicate in case same message has both formats

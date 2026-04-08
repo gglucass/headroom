@@ -449,9 +449,21 @@ class IntelligentContextManager(Transform):
             else:
                 insert_idx = len(result_messages)
 
+            # Match the content format of existing messages.
+            # Strands SDK uses list-of-blocks: [{"text": "..."}]
+            # Anthropic/OpenAI use plain strings.
+            # Check what format the conversation uses and match it.
+            _uses_block_format = any(
+                isinstance(m.get("content"), list)
+                for m in result_messages
+                if m.get("role") == "user"
+            )
+            marker_content: str | list[dict[str, str]] = (
+                [{"type": "text", "text": marker}] if _uses_block_format else marker
+            )
             result_messages.insert(
                 insert_idx,
-                {"role": "user", "content": marker},
+                {"role": "user", "content": marker_content},
             )
 
             transforms_applied.append(f"intelligent_cap:{dropped_count}")

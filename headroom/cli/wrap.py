@@ -108,8 +108,10 @@ def _start_proxy(
         env=proxy_env,
     )
 
-    # Wait for proxy to be ready (up to 15 seconds)
-    for _i in range(15):
+    # Wait for proxy to be ready (up to 45 seconds).
+    # ML components (Kompress, Magika, Tree-sitter) load synchronously before
+    # uvicorn binds the port. On slower machines this can take 20-30 seconds.
+    for _i in range(45):
         time.sleep(1)
         if _check_proxy(port):
             click.echo(f"  Logs: {log_path}")
@@ -126,7 +128,7 @@ def _start_proxy(
 
     proc.kill()
     log_file.close()
-    raise RuntimeError(f"Proxy failed to start on port {port} within 15 seconds")
+    raise RuntimeError(f"Proxy failed to start on port {port} within 45 seconds")
 
 
 def _setup_rtk(verbose: bool = False) -> Path | None:
