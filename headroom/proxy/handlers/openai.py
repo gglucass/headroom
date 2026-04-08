@@ -583,7 +583,11 @@ class OpenAIHandlerMixin:
                 # Cache
                 if self.cache and response.status_code == 200:
                     await self.cache.set(
-                        messages, model, response.content, dict(response.headers), tokens_saved
+                        messages,
+                        model,
+                        response.content,
+                        dict(response.headers),
+                        tokens_saved,
                     )
 
                 await self.metrics.record_request(
@@ -1517,7 +1521,10 @@ class OpenAIHandlerMixin:
             return JSONResponse(
                 status_code=400,
                 content={
-                    "error": {"message": f"Invalid JSON: {e}", "type": "invalid_request_error"}
+                    "error": {
+                        "message": f"Invalid JSON: {e}",
+                        "type": "invalid_request_error",
+                    }
                 },
             )
 
