@@ -234,6 +234,56 @@ def _ensure_rtk_binary(verbose: bool = False) -> Path | None:
     return None
 
 
+def _inject_codex_provider_config(port: int) -> None:
+    """Inject a Headroom model provider into Codex's config.toml.
+
+    Codex ignores OPENAI_BASE_URL for WebSocket transport unless a custom
+    provider declares ``supports_websockets = true``.  This writes a
+    ``[model_providers.headroom]`` section that routes both HTTP and WS
+    through the proxy, and sets ``model_provider = "headroom"``.
+
+    Safe to call multiple times — only writes if the section is missing
+    or the port changed.
+    """
+    config_dir = Path.home() / ".codex"
+    config_file = config_dir / "config.toml"
+
+    headroom_section = (
+        f"\n# --- Headroom proxy (auto-injected by headroom wrap codex) ---\n"
+        f'model_provider = "headroom"\n'
+        f"\n"
+        f"[model_providers.headroom]\n"
+        f'name = "OpenAI via Headroom proxy"\n'
+        f'base_url = "http://127.0.0.1:{port}/v1"\n'
+        f'env_key = "OPENAI_API_KEY"\n'
+        f"supports_websockets = true\n"
+        f"# --- end Headroom ---\n"
+    )
+
+    marker = "# --- Headroom proxy (auto-injected by headroom wrap codex) ---"
+    end_marker = "# --- end Headroom ---"
+
+    try:
+        config_dir.mkdir(parents=True, exist_ok=True)
+
+        if config_file.exists():
+            content = config_file.read_text()
+            if marker in content:
+                # Replace existing section
+                start = content.index(marker)
+                end = content.index(end_marker) + len(end_marker)
+                content = content[:start].rstrip() + headroom_section + content[end:].lstrip("\n")
+            else:
+                content = content.rstrip() + "\n" + headroom_section
+        else:
+            content = headroom_section
+
+        config_file.write_text(content)
+        click.echo(f"  Codex config: injected Headroom provider (WS + HTTP) into {config_file}")
+    except Exception as e:
+        click.echo(f"  Warning: could not update Codex config: {e}")
+
+
 def _inject_rtk_instructions(file_path: Path, verbose: bool = False) -> bool:
     """Inject rtk instructions into a file (AGENTS.md, .cursorrules, etc.).
 
@@ -636,6 +686,11 @@ def codex(
 
     env = os.environ.copy()
     env["OPENAI_BASE_URL"] = f"http://127.0.0.1:{port}/v1"
+
+    # Inject Headroom provider into Codex config so WebSocket traffic also
+    # routes through the proxy.  Codex ignores OPENAI_BASE_URL for its WS
+    # transport unless a custom provider declares supports_websockets = true.
+    _inject_codex_provider_config(port)
 
     _launch_tool(
         binary=codex_bin,
