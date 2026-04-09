@@ -221,6 +221,24 @@ describe("ProxyManager launch internals", () => {
     }
   });
 
+  it("passes through fast-fail launch flags when configured", () => {
+    const manager = new ProxyManager({ retryMaxAttempts: 1, connectTimeoutSeconds: 3 });
+    const specs = (manager as any).buildLaunchSpecs("127.0.0.1", "8787") as Array<Record<string, unknown>>;
+    const pathSpec = specs[0];
+
+    expect(pathSpec.args).toEqual([
+      "proxy",
+      "--host",
+      "127.0.0.1",
+      "--port",
+      "8787",
+      "--retry-max-attempts",
+      "1",
+      "--connect-timeout-seconds",
+      "3",
+    ]);
+  });
+
   it("uses lightweight module discovery for python fallback checks", () => {
     const manager = new ProxyManager({ pythonPath: "C:\\Python311\\python.exe" });
     const specs = (manager as any).buildLaunchSpecs("127.0.0.1", "8787") as Array<Record<string, unknown>>;

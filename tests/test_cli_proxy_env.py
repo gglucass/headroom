@@ -142,6 +142,30 @@ class TestCLIProxyEnvVars:
         assert captured_config["config"].openai_api_url == "http://my-vllm:4000"
         assert captured_config["config"].gemini_api_url == "http://my-gemini:5000"
 
+    def test_retry_and_connect_timeout_cli_flags(self, runner):
+        """Fast-fail CLI flags should map into ProxyConfig."""
+        captured_config = {}
+
+        def mock_run_server(config):
+            captured_config["config"] = config
+
+        with patch("headroom.proxy.server.run_server", mock_run_server):
+            result = runner.invoke(
+                main,
+                [
+                    "proxy",
+                    "--retry-max-attempts",
+                    "1",
+                    "--connect-timeout-seconds",
+                    "3",
+                ],
+                catch_exceptions=False,
+            )
+
+        assert result.exit_code == 0, result.output
+        assert captured_config["config"].retry_max_attempts == 1
+        assert captured_config["config"].connect_timeout_seconds == 3
+
 
 class TestCLIProxyBackend:
     """Test that litellm-* backends are accepted by the CLI."""

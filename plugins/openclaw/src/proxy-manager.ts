@@ -18,6 +18,8 @@ export interface ProxyManagerConfig {
   pythonPath?: string;
   autoStart?: boolean;
   startupTimeoutMs?: number;
+  retryMaxAttempts?: number;
+  connectTimeoutSeconds?: number;
 }
 
 export interface ProxyManagerLogger {
@@ -210,6 +212,16 @@ export class ProxyManager {
 
   private buildLaunchSpecs(host: string, port: string): LaunchSpec[] {
     const commonArgs = ["proxy", "--host", host, "--port", port];
+    const retryMaxAttempts = this.config.retryMaxAttempts;
+    if (Number.isInteger(retryMaxAttempts)) {
+      commonArgs.push("--retry-max-attempts", String(retryMaxAttempts));
+    }
+
+    const connectTimeoutSeconds = this.config.connectTimeoutSeconds;
+    if (Number.isInteger(connectTimeoutSeconds)) {
+      commonArgs.push("--connect-timeout-seconds", String(connectTimeoutSeconds));
+    }
+
     const specs: LaunchSpec[] = [];
 
     // 1) PATH
