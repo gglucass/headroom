@@ -1132,6 +1132,24 @@ def openclaw(
     elif not local_source_mode and skip_build:
         click.echo("  Skipping build: npm install mode does not build local source.")
 
+    effective_python_path = python_path
+    if effective_python_path is None and not no_auto_start and sys.executable:
+        effective_python_path = sys.executable
+
+    existing_entry = _read_openclaw_config_value(openclaw_bin, "plugins.entries.headroom")
+    entry = _build_openclaw_plugin_entry(
+        existing_entry=existing_entry,
+        proxy_port=proxy_port,
+        startup_timeout_ms=startup_timeout_ms,
+        python_path=effective_python_path,
+        no_auto_start=no_auto_start,
+        gateway_provider_ids=gateway_provider_ids,
+        enabled=True,
+    )
+
+    click.echo("  Writing plugin configuration...")
+    _write_openclaw_plugin_entry(openclaw_bin, entry)
+
     install_cmd = [
         openclaw_bin,
         "plugins",
@@ -1184,19 +1202,6 @@ def openclaw(
     elif verbose and install_result.stdout.strip():
         click.echo(install_result.stdout.strip())
 
-    existing_entry = _read_openclaw_config_value(openclaw_bin, "plugins.entries.headroom")
-    entry = _build_openclaw_plugin_entry(
-        existing_entry=existing_entry,
-        proxy_port=proxy_port,
-        startup_timeout_ms=startup_timeout_ms,
-        python_path=python_path,
-        no_auto_start=no_auto_start,
-        gateway_provider_ids=gateway_provider_ids,
-        enabled=True,
-    )
-
-    click.echo("  Writing plugin configuration...")
-    _write_openclaw_plugin_entry(openclaw_bin, entry)
     _set_openclaw_context_engine_slot(openclaw_bin, "headroom")
     _run_checked(
         [openclaw_bin, "config", "validate"],

@@ -67,6 +67,18 @@ def test_wrap_openclaw_default_installs_from_npm_and_restarts(runner: CliRunner)
     assert ["openclaw", "gateway", "restart"] in cmds
     assert ["openclaw", "plugins", "inspect", "headroom"] in cmds
 
+    config_set_index = next(
+        i
+        for i, cmd in enumerate(cmds)
+        if cmd[:4] == ["openclaw", "config", "set", "plugins.entries.headroom"]
+    )
+    install_index = next(
+        i
+        for i, cmd in enumerate(cmds)
+        if cmd[:4] == ["openclaw", "plugins", "install", "--dangerously-force-unsafe-install"]
+    )
+    assert config_set_index < install_index
+
     # Verify plugin install in npm mode does not set cwd
     install_call = next(
         c
@@ -91,6 +103,7 @@ def test_wrap_openclaw_default_installs_from_npm_and_restarts(runner: CliRunner)
     assert payload["config"]["autoStart"] is True
     assert payload["config"]["startupTimeoutMs"] == 20000
     assert payload["config"]["gatewayProviderIds"] == ["openai-codex"]
+    assert payload["config"]["pythonPath"] == wrap_cli.sys.executable
 
 
 def test_wrap_openclaw_skip_build_and_no_restart(runner: CliRunner, plugin_dir: Path) -> None:
@@ -328,6 +341,86 @@ def test_wrap_openclaw_accepts_repeatable_gateway_provider_ids(runner: CliRunner
     )
     payload = json.loads(set_entry["cmd"][4])
     assert payload["config"]["gatewayProviderIds"] == ["openai-codex", "anthropic"]
+
+
+def test_normalize_openclaw_gateway_provider_ids_dedupes_blanks_and_defaults() -> None:
+    assert wrap_cli._normalize_openclaw_gateway_provider_ids(
+        (" openai-codex ", "", "anthropic", "openai-codex", "  ")
+    ) == ["openai-codex", "anthropic"]
+    assert wrap_cli._normalize_openclaw_gateway_provider_ids(None) == ["openai-codex"]
+
+
+def test_read_openclaw_config_value_handles_missing_and_raw_strings() -> None:
+    missing = MagicMock(returncode=1, stdout="", stderr="missing")
+    raw_string = MagicMock(returncode=0, stdout="plain-text-value\n", stderr="")
+
+    with patch("headroom.cli.wrap.subprocess.run", side_effect=[missing, raw_string]):
+        assert wrap_cli._read_openclaw_config_value("openclaw", "plugins.entries.headroom") is None
+        assert (
+            wrap_cli._read_openclaw_config_value(
+                "openclaw", "plugins.entries.headroom.config.pythonPath"
+            )
+            == "plain-text-value"
+        )
+
+
+def test_build_openclaw_plugin_entry_sets_and_clears_python_path() -> None:
+    with_python = wrap_cli._build_openclaw_plugin_entry(
+        existing_entry={"config": {"customFlag": True}},
+        proxy_port=8787,
+        startup_timeout_ms=20000,
+        python_path="C:\\Python312\\python.exe",
+        no_auto_start=False,
+        gateway_provider_ids=("openai-codex",),
+        enabled=True,
+    )
+    assert with_python["config"]["pythonPath"] == "C:\\Python312\\python.exe"
+
+    without_python = wrap_cli._build_openclaw_plugin_entry(
+        existing_entry={"config": {"pythonPath": "C:\\Old\\python.exe", "customFlag": True}},
+        proxy_port=8787,
+        startup_timeout_ms=20000,
+        python_path=None,
+        no_auto_start=False,
+        gateway_provider_ids=("openai-codex",),
+        enabled=True,
+    )
+    assert "pythonPath" not in without_python["config"]
+    assert without_python["config"]["customFlag"] is True
+
+
+def test_wrap_openclaw_no_auto_start_does_not_default_python_path(
+    runner: CliRunner, plugin_dir: Path
+) -> None:
+    calls: list[dict] = []
+
+    def which(name: str) -> str | None:
+        return {"openclaw": "openclaw", "npm": "npm"}.get(name)
+
+    with patch("headroom.cli.wrap.shutil.which", side_effect=which):
+        with patch("headroom.cli.wrap.subprocess.run", side_effect=_make_successful_run(calls)):
+            result = runner.invoke(
+                main,
+                [
+                    "wrap",
+                    "openclaw",
+                    "--plugin-path",
+                    str(plugin_dir),
+                    "--skip-build",
+                    "--no-auto-start",
+                    "--no-restart",
+                ],
+            )
+
+    assert result.exit_code == 0, result.output
+    set_entry = next(
+        c
+        for c in calls
+        if c["cmd"][:4] == ["openclaw", "config", "set", "plugins.entries.headroom"]
+    )
+    payload = json.loads(set_entry["cmd"][4])
+    assert payload["config"]["autoStart"] is False
+    assert "pythonPath" not in payload["config"]
 
 
 def test_wrap_openclaw_fails_for_npm_mode_hook_pack_bug_without_local_fallback(
@@ -571,3 +664,37 @@ def test_unwrap_openclaw_no_restart_skips_gateway_restart(runner: CliRunner) -> 
 
     assert result.exit_code == 0, result.output
     assert ["openclaw", "gateway", "restart"] not in [c["cmd"] for c in calls]
+
+
+def test_unwrap_openclaw_fails_when_openclaw_missing(runner: CliRunner) -> None:
+    with patch("headroom.cli.wrap.shutil.which", return_value=None):
+        result = runner.invoke(main, ["unwrap", "openclaw"])
+
+    assert result.exit_code != 0
+    assert "'openclaw' not found in PATH" in result.output
+
+
+def test_unwrap_openclaw_verbose_prints_gateway_and_inspect_output(runner: CliRunner) -> None:
+    def which(name: str) -> str | None:
+        return {"openclaw": "openclaw"}.get(name)
+
+    def run(cmd, **kwargs):  # noqa: ANN001
+        if cmd[:4] == ["openclaw", "config", "get", "plugins.entries.headroom"]:
+            return MagicMock(
+                returncode=0,
+                stdout=json.dumps({"enabled": True, "config": {"proxyPort": 8787}}),
+                stderr="",
+            )
+        if cmd[:3] == ["openclaw", "gateway", "restart"]:
+            return MagicMock(returncode=0, stdout="gateway-restarted", stderr="")
+        if cmd[:3] == ["openclaw", "plugins", "inspect"]:
+            return MagicMock(returncode=0, stdout="inspect-disabled", stderr="")
+        return MagicMock(returncode=0, stdout="", stderr="")
+
+    with patch("headroom.cli.wrap.shutil.which", side_effect=which):
+        with patch("headroom.cli.wrap.subprocess.run", side_effect=run):
+            result = runner.invoke(main, ["unwrap", "openclaw", "--verbose"])
+
+    assert result.exit_code == 0, result.output
+    assert "gateway-restarted" in result.output
+    assert "inspect-disabled" in result.output
