@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Keeps `GET /health` backward compatible while expanding it with readiness details and subsystem checks
   - Eagerly initializes configured memory backends during proxy startup so readiness reflects real serving capability
   - Wires `/readyz` into the Docker image `HEALTHCHECK` and the example `docker-compose.yml`
+- **Dev Container environments** for contributors
+  - Adds a default `.devcontainer/devcontainer.json` with Python 3.12, `uv`, Node.js, and GitHub CLI
+  - Adds `.devcontainer/memory-stack/devcontainer.json` backed by Qdrant + Neo4j sidecars for memory-stack work
+  - Adds CI validation to build both Dev Container configurations on relevant changes
 - **Durable proxy savings history**
   - Persists proxy compression savings history locally at `~/.headroom/proxy_savings.json`
   - Supports `HEADROOM_SAVINGS_PATH` to override the storage location

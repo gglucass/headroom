@@ -68,6 +68,29 @@ pytest
 pytest --cov=headroom --cov-report=html
 ```
 
+### Dev Containers
+
+If you use VS Code or GitHub Codespaces, Headroom ships two Dev Container configs:
+
+- **`.devcontainer/devcontainer.json`** - default contributor environment with Python 3.12, `uv`, Node.js, and GitHub CLI
+- **`.devcontainer/memory-stack/devcontainer.json`** - the same environment plus Qdrant and Neo4j sidecars, with the locked `memory-stack` extra installed for `qdrant-neo4j` backend work
+
+Inside the memory-stack container, use the sidecar service names instead of `localhost`:
+
+```bash
+qdrant:6333
+neo4j://neo4j:7687
+```
+
+The default container runs `uv sync --frozen --extra dev` on creation, so the usual repo commands become:
+
+```bash
+uv run ruff check .
+uv run ruff format --check .
+uv run mypy headroom --ignore-missing-imports
+uv run pytest -v --tb=short
+```
+
 ## Coding Standards
 
 ### Style

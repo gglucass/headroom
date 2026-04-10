@@ -148,7 +148,7 @@ class Memory:
             except ImportError as e:
                 raise ImportError(
                     "qdrant-neo4j backend requires additional packages. "
-                    "Install with: pip install mem0ai qdrant-client neo4j\n"
+                    "Install with: pip install 'headroom-ai[memory-stack]'\n"
                     "And start Docker services: docker compose up -d qdrant neo4j"
                 ) from e
         else:

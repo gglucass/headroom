@@ -164,7 +164,7 @@ class MemoryHandler:
             except ImportError as e:
                 logger.error(
                     f"Memory: Failed to import qdrant-neo4j dependencies: {e}. "
-                    "Install with: pip install mem0ai qdrant-client neo4j"
+                    "Install with: pip install 'headroom-ai[memory-stack]'"
                 )
                 raise
         else:

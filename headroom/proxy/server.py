@@ -643,7 +643,7 @@ class HeadroomProxy(
             await self.http_client.aclose()
             self.http_client = None
 
-        if self.memory_handler:
+        if self.memory_handler and hasattr(self.memory_handler, "close"):
             await self.memory_handler.close()
 
         # Print final stats

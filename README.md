@@ -502,6 +502,8 @@ git clone https://github.com/chopratejas/headroom.git && cd headroom
 pip install -e ".[dev]" && pytest
 ```
 
+Prefer a containerized setup? Open the repo in **`.devcontainer/devcontainer.json`** for the default Python/uv workflow, or **`.devcontainer/memory-stack/devcontainer.json`** when you need local Qdrant + Neo4j services and the locked `memory-stack` extra for the `qdrant-neo4j` memory backend. Inside that container, use `qdrant:6333` and `neo4j://neo4j:7687` instead of `localhost`.
+
 ---
 
 ## License

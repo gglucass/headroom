@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 import pytest
 
 pytest.importorskip("fastapi")
@@ -127,3 +129,27 @@ def test_readyz_initializes_qdrant_memory_backend(monkeypatch):
     assert data["checks"]["memory"]["status"] == "healthy"
     assert data["checks"]["memory"]["backend"] == "qdrant-neo4j"
     assert data["checks"]["memory"]["initialized"] is True
+
+
+def test_shutdown_tolerates_stubbed_memory_handler():
+    config = ProxyConfig(
+        optimize=False,
+        cache_enabled=False,
+        rate_limit_enabled=False,
+        cost_tracking_enabled=False,
+    )
+    app = create_app(config)
+
+    with TestClient(app) as client:
+        client.app.state.proxy.memory_handler = SimpleNamespace(
+            health_status=lambda: {
+                "enabled": False,
+                "backend": None,
+                "initialized": False,
+                "native_tool": False,
+                "bridge_enabled": False,
+            }
+        )
+        response = client.get("/health")
+
+    assert response.status_code == 200

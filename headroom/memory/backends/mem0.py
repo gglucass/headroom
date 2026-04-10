@@ -107,7 +107,7 @@ class Mem0Backend:
                 from mem0 import Memory as Mem0Memory
             except ImportError:
                 raise ImportError(
-                    "mem0 package not installed. Install with: pip install mem0ai"
+                    "mem0 package not installed. Install with: pip install 'headroom-ai[memory-stack]'"
                 ) from None
 
             if self._config.mode == "cloud":

@@ -1,0 +1,56 @@
+name: Dev Containers
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".devcontainer/**"
+      - ".github/workflows/devcontainers.yml"
+      - "pyproject.toml"
+      - "uv.lock"
+  pull_request:
+    branches: [main]
+    paths:
+      - ".devcontainer/**"
+      - ".github/workflows/devcontainers.yml"
+      - "pyproject.toml"
+      - "uv.lock"
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: default
+            config: .devcontainer/devcontainer.json
+          - name: memory-stack
+            config: .devcontainer/memory-stack/devcontainer.json
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Install Dev Container CLI
+        run: npm install -g @devcontainers/cli@0.85.0
+
+      - name: Start ${{ matrix.name }}
+        run: devcontainer up --workspace-folder . --config ${{ matrix.config }} --remove-existing-container
+
+      - name: Smoke test ${{ matrix.name }}
+        shell: bash
+        run: |
+          if [[ "${{ matrix.name }}" == "memory-stack" ]]; then
+            devcontainer exec --workspace-folder . bash -lc 'uv --version && node --version && gh --version >/dev/null && python -c "import socket; socket.create_connection((\"qdrant\", 6333), 5).close(); socket.create_connection((\"neo4j\", 7687), 5).close(); from mem0 import Memory; from qdrant_client import QdrantClient; import neo4j; import headroom; print(\"memory-stack smoke test passed\")"'
+          else
+            devcontainer exec --workspace-folder . bash -lc 'uv --version && node --version && gh --version >/dev/null && python -c "import headroom; print(\"default smoke test passed\")"'
+          fi

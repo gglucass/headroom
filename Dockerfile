@@ -1,9 +1,12 @@
 ARG PYTHON_VERSION=3.11
+ARG UV_VERSION=0.6.17
 ARG DISTROLESS_IMAGE=gcr.io/distroless/python3-debian13
 ARG PYTHON_SITE_PACKAGES=/usr/local/lib/python${PYTHON_VERSION}/site-packages
 
 # ---- Build stage: compile native extensions, build wheel ----
 FROM python:${PYTHON_VERSION}-slim AS builder
+
+ARG UV_VERSION
 
 RUN apt-get update && \
   apt-get install -y --no-install-recommends \
@@ -11,7 +14,7 @@ RUN apt-get update && \
     g++ \
   && rm -rf /var/lib/apt/lists/*
 
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+RUN python -m pip install --no-cache-dir uv==${UV_VERSION}
 
 WORKDIR /build
 
@@ -82,6 +85,9 @@ ENV HEADROOM_HOST=0.0.0.0 \
     PYTHONPATH=${PYTHON_SITE_PACKAGES}
 
 EXPOSE 8787
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+    CMD ["python3", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8787/readyz', timeout=5)"]
 
 ENTRYPOINT ["python3", "-m", "headroom.cli", "proxy"]
 CMD ["--host", "0.0.0.0", "--port", "8787"]
