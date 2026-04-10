@@ -478,6 +478,131 @@ def _resolve_openclaw_extensions_dir(openclaw_bin: str) -> Path:
     return config_path.parent / "extensions"
 
 
+def _normalize_openclaw_gateway_provider_ids(provider_ids: tuple[str, ...] | None) -> list[str]:
+    """Normalize configured OpenClaw provider ids, defaulting to openai-codex."""
+    values = provider_ids or ()
+    seen: set[str] = set()
+    normalized: list[str] = []
+
+    for entry in values:
+        provider_id = entry.strip()
+        if not provider_id or provider_id in seen:
+            continue
+        seen.add(provider_id)
+        normalized.append(provider_id)
+
+    if normalized:
+        return normalized
+    return ["openai-codex"]
+
+
+def _read_openclaw_config_value(openclaw_bin: str, path: str) -> Any | None:
+    """Read an OpenClaw config value when present, returning None on missing paths."""
+    result = subprocess.run(
+        [openclaw_bin, "config", "get", path],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    if result.returncode != 0:
+        return None
+
+    output = result.stdout.strip()
+    if not output:
+        return None
+
+    try:
+        return json.loads(output)
+    except json.JSONDecodeError:
+        return output
+
+
+def _build_openclaw_plugin_entry(
+    *,
+    existing_entry: Any,
+    proxy_port: int,
+    startup_timeout_ms: int,
+    python_path: str | None,
+    no_auto_start: bool,
+    gateway_provider_ids: tuple[str, ...] | None,
+    enabled: bool,
+) -> dict[str, object]:
+    """Merge managed Headroom plugin settings with any existing entry payload."""
+    base_entry = existing_entry if isinstance(existing_entry, dict) else {}
+    existing_config = base_entry.get("config")
+    next_config = dict(existing_config) if isinstance(existing_config, dict) else {}
+
+    next_config["proxyPort"] = proxy_port
+    next_config["autoStart"] = not no_auto_start
+    next_config["startupTimeoutMs"] = startup_timeout_ms
+    next_config["gatewayProviderIds"] = _normalize_openclaw_gateway_provider_ids(
+        gateway_provider_ids
+    )
+
+    if python_path:
+        next_config["pythonPath"] = python_path
+    else:
+        next_config.pop("pythonPath", None)
+
+    return {
+        **base_entry,
+        "enabled": enabled,
+        "config": next_config,
+    }
+
+
+def _write_openclaw_plugin_entry(openclaw_bin: str, entry: dict[str, object]) -> None:
+    """Persist the Headroom plugin config entry."""
+    _run_checked(
+        [
+            openclaw_bin,
+            "config",
+            "set",
+            "plugins.entries.headroom",
+            json.dumps(entry, separators=(",", ":")),
+            "--strict-json",
+        ],
+        action="openclaw config set plugins.entries.headroom",
+    )
+
+
+def _set_openclaw_context_engine_slot(openclaw_bin: str, engine_id: str) -> None:
+    """Persist the selected OpenClaw context engine slot."""
+    _run_checked(
+        [
+            openclaw_bin,
+            "config",
+            "set",
+            "plugins.slots.contextEngine",
+            json.dumps(engine_id),
+            "--strict-json",
+        ],
+        action="openclaw config set plugins.slots.contextEngine",
+    )
+
+
+def _restart_or_start_openclaw_gateway(openclaw_bin: str) -> tuple[str, str]:
+    """Restart the gateway when running, otherwise start it."""
+    restart_result = subprocess.run(
+        [openclaw_bin, "gateway", "restart"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    if restart_result.returncode == 0:
+        output = restart_result.stdout.strip() or restart_result.stderr.strip()
+        return "restarted", output
+
+    start_result = _run_checked(
+        [openclaw_bin, "gateway", "start"],
+        action="openclaw gateway start",
+    )
+    output = start_result.stdout.strip() or start_result.stderr.strip()
+    return "started", output
+
+
 def _copy_openclaw_plugin_into_extensions(
     *,
     plugin_dir: Path,
@@ -531,6 +656,11 @@ def wrap() -> None:
         headroom wrap cursor              # Cursor (prints config instructions)
         headroom wrap openclaw            # OpenClaw plugin bootstrap
     """
+
+
+@main.group()
+def unwrap() -> None:
+    """Undo durable Headroom wrapping for supported tools."""
 
 
 # =============================================================================
@@ -914,6 +1044,12 @@ def cursor(port: int, no_rtk: bool, no_proxy: bool, learn: bool, verbose: bool) 
 @click.option("--proxy-port", default=8787, type=int, help="Headroom proxy port")
 @click.option("--startup-timeout-ms", default=20000, type=int, help="Proxy startup timeout")
 @click.option(
+    "--gateway-provider-id",
+    "gateway_provider_ids",
+    multiple=True,
+    help="OpenClaw provider id to route through Headroom (repeatable; default: openai-codex)",
+)
+@click.option(
     "--python-path",
     default=None,
     help="Optional Python executable for proxy launcher fallback",
@@ -936,6 +1072,7 @@ def openclaw(
     copy: bool,
     proxy_port: int,
     startup_timeout_ms: int,
+    gateway_provider_ids: tuple[str, ...],
     python_path: str | None,
     no_auto_start: bool,
     no_restart: bool,
@@ -995,6 +1132,24 @@ def openclaw(
     elif not local_source_mode and skip_build:
         click.echo("  Skipping build: npm install mode does not build local source.")
 
+    effective_python_path = python_path
+    if effective_python_path is None and not no_auto_start and sys.executable:
+        effective_python_path = sys.executable
+
+    existing_entry = _read_openclaw_config_value(openclaw_bin, "plugins.entries.headroom")
+    entry = _build_openclaw_plugin_entry(
+        existing_entry=existing_entry,
+        proxy_port=proxy_port,
+        startup_timeout_ms=startup_timeout_ms,
+        python_path=effective_python_path,
+        no_auto_start=no_auto_start,
+        gateway_provider_ids=gateway_provider_ids,
+        enabled=True,
+    )
+
+    click.echo("  Writing plugin configuration...")
+    _write_openclaw_plugin_entry(openclaw_bin, entry)
+
     install_cmd = [
         openclaw_bin,
         "plugins",
@@ -1047,38 +1202,7 @@ def openclaw(
     elif verbose and install_result.stdout.strip():
         click.echo(install_result.stdout.strip())
 
-    plugin_config: dict[str, object] = {
-        "proxyPort": proxy_port,
-        "autoStart": not no_auto_start,
-        "startupTimeoutMs": startup_timeout_ms,
-    }
-    if python_path:
-        plugin_config["pythonPath"] = python_path
-    entry = {"enabled": True, "config": plugin_config}
-
-    click.echo("  Writing plugin configuration...")
-    _run_checked(
-        [
-            openclaw_bin,
-            "config",
-            "set",
-            "plugins.entries.headroom",
-            json.dumps(entry, separators=(",", ":")),
-            "--strict-json",
-        ],
-        action="openclaw config set plugins.entries.headroom",
-    )
-    _run_checked(
-        [
-            openclaw_bin,
-            "config",
-            "set",
-            "plugins.slots.contextEngine",
-            json.dumps("headroom"),
-            "--strict-json",
-        ],
-        action="openclaw config set plugins.slots.contextEngine",
-    )
+    _set_openclaw_context_engine_slot(openclaw_bin, "headroom")
     _run_checked(
         [openclaw_bin, "config", "validate"],
         action="openclaw config validate",
@@ -1086,15 +1210,15 @@ def openclaw(
 
     if no_restart:
         click.echo("  Skipping gateway restart (--no-restart).")
-        click.echo("  Run `openclaw gateway restart` to apply plugin changes.")
-    else:
-        click.echo("  Warning: restarting OpenClaw gateway to apply plugin changes.")
-        restart_result = _run_checked(
-            [openclaw_bin, "gateway", "restart"],
-            action="openclaw gateway restart",
+        click.echo(
+            "  Run `openclaw gateway restart` (or `openclaw gateway start`) to apply plugin changes."
         )
-        if verbose and restart_result.stdout.strip():
-            click.echo(restart_result.stdout.strip())
+    else:
+        click.echo("  Applying plugin changes to OpenClaw gateway...")
+        gateway_action, gateway_output = _restart_or_start_openclaw_gateway(openclaw_bin)
+        click.echo(f"  Gateway {gateway_action}.")
+        if verbose and gateway_output:
+            click.echo(gateway_output)
 
     inspect_result = _run_checked(
         [openclaw_bin, "plugins", "inspect", "headroom"],
@@ -1107,4 +1231,72 @@ def openclaw(
     click.echo("✓ OpenClaw is configured to use Headroom context compression.")
     click.echo("  Plugin: headroom")
     click.echo("  Slot:   plugins.slots.contextEngine = headroom")
+    click.echo()
+
+
+@unwrap.command("openclaw")
+@click.option("--no-restart", is_flag=True, help="Do not restart OpenClaw gateway at the end")
+@click.option("--verbose", "-v", is_flag=True, help="Verbose output")
+def unwrap_openclaw(no_restart: bool, verbose: bool) -> None:
+    """Disable the Headroom OpenClaw plugin and restore the legacy engine slot."""
+    openclaw_bin = shutil.which("openclaw")
+    if not openclaw_bin:
+        raise click.ClickException("'openclaw' not found in PATH. Install OpenClaw CLI first.")
+
+    click.echo()
+    click.echo("  ╔═══════════════════════════════════════════════╗")
+    click.echo("  ║          HEADROOM UNWRAP: OPENCLAW            ║")
+    click.echo("  ╚═══════════════════════════════════════════════╝")
+    click.echo()
+    click.echo("  Disabling Headroom plugin and removing engine mapping...")
+
+    existing_entry = _read_openclaw_config_value(openclaw_bin, "plugins.entries.headroom")
+    existing_config = {}
+    if isinstance(existing_entry, dict) and isinstance(existing_entry.get("config"), dict):
+        existing_config = {
+            key: value
+            for key, value in existing_entry["config"].items()
+            if key
+            not in {
+                "gatewayProviderIds",
+                "proxyUrl",
+                "proxyPort",
+                "autoStart",
+                "startupTimeoutMs",
+                "pythonPath",
+            }
+        }
+
+    entry = {"enabled": False, "config": existing_config}
+    _write_openclaw_plugin_entry(openclaw_bin, entry)
+    _set_openclaw_context_engine_slot(openclaw_bin, "legacy")
+    _run_checked(
+        [openclaw_bin, "config", "validate"],
+        action="openclaw config validate",
+    )
+
+    if no_restart:
+        click.echo("  Skipping gateway restart (--no-restart).")
+        click.echo(
+            "  Run `openclaw gateway restart` (or `openclaw gateway start`) to apply unwrap changes."
+        )
+    else:
+        click.echo("  Applying unwrap changes to OpenClaw gateway...")
+        gateway_action, gateway_output = _restart_or_start_openclaw_gateway(openclaw_bin)
+        click.echo(f"  Gateway {gateway_action}.")
+        if verbose and gateway_output:
+            click.echo(gateway_output)
+
+    if verbose:
+        inspect_result = _run_checked(
+            [openclaw_bin, "plugins", "inspect", "headroom"],
+            action="openclaw plugins inspect headroom",
+        )
+        if inspect_result.stdout.strip():
+            click.echo(inspect_result.stdout.strip())
+
+    click.echo()
+    click.echo("✓ OpenClaw Headroom wrap removed.")
+    click.echo("  Plugin: headroom (installed, disabled)")
+    click.echo("  Slot:   plugins.slots.contextEngine = legacy")
     click.echo()

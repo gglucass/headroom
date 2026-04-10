@@ -204,6 +204,53 @@ describe("ProxyManager launch internals", () => {
     expect(commands).toContain("py");
   });
 
+  it("uses lightweight PATH checks instead of booting the headroom CLI", () => {
+    const manager = new ProxyManager({});
+    const specs = (manager as any).buildLaunchSpecs("127.0.0.1", "8787") as Array<Record<string, unknown>>;
+    const pathSpec = specs[0];
+
+    expect(pathSpec.command).toBe("headroom");
+    expect(pathSpec.args).toEqual(["proxy", "--host", "127.0.0.1", "--port", "8787"]);
+    if (process.platform === "win32") {
+      expect(pathSpec.checkCommand).toBe("where.exe");
+      expect(pathSpec.checkArgs).toEqual(["headroom"]);
+      expect(pathSpec.checkUseShell).toBe(false);
+    } else {
+      expect(pathSpec.checkCommand).toBe("sh");
+      expect(pathSpec.checkArgs).toEqual(["-lc", "command -v headroom >/dev/null 2>&1"]);
+    }
+  });
+
+  it("passes through fast-fail launch flags when configured", () => {
+    const manager = new ProxyManager({ retryMaxAttempts: 1, connectTimeoutSeconds: 3 });
+    const specs = (manager as any).buildLaunchSpecs("127.0.0.1", "8787") as Array<Record<string, unknown>>;
+    const pathSpec = specs[0];
+
+    expect(pathSpec.args).toEqual([
+      "proxy",
+      "--host",
+      "127.0.0.1",
+      "--port",
+      "8787",
+      "--retry-max-attempts",
+      "1",
+      "--connect-timeout-seconds",
+      "3",
+    ]);
+  });
+
+  it("uses lightweight module discovery for python fallback checks", () => {
+    const manager = new ProxyManager({ pythonPath: "C:\\Python311\\python.exe" });
+    const specs = (manager as any).buildLaunchSpecs("127.0.0.1", "8787") as Array<Record<string, unknown>>;
+    const pythonSpec = specs.find((spec) => spec.command === "C:\\Python311\\python.exe");
+
+    expect(pythonSpec).toBeDefined();
+    expect(pythonSpec?.checkArgs).toEqual([
+      "-c",
+      "import importlib.util, sys; sys.exit(0 if importlib.util.find_spec('headroom') else 1)",
+    ]);
+  });
+
   it("uses first available launcher from provided specs", async () => {
     const manager = new ProxyManager({});
     (manager as any).buildLaunchSpecs = () => [
@@ -227,6 +274,27 @@ describe("ProxyManager launch internals", () => {
     await (manager as any).startHeadroomProxy("http://127.0.0.1:8787");
     expect(infoSpy).toHaveBeenCalledWith(expect.stringContaining("Auto-start launcher selected"));
     expect(infoSpy).toHaveBeenCalledWith(expect.stringContaining("second-node"));
+  });
+
+  it("supports shell-backed launch specs for PATH shims and script wrappers", async () => {
+    const manager = new ProxyManager({});
+    const shellBuiltin = process.platform === "win32" ? "dir" : ":";
+    (manager as any).buildLaunchSpecs = () => [
+      {
+        label: "shell-backed",
+        command: shellBuiltin,
+        args: [],
+        checkCommand: shellBuiltin,
+        checkArgs: [],
+        useShell: true,
+      },
+    ];
+    const infoSpy = vi.spyOn((manager as any).logger, "info");
+
+    await (manager as any).startHeadroomProxy("http://127.0.0.1:8787", 8787);
+
+    expect(infoSpy).toHaveBeenCalledWith(expect.stringContaining("Auto-start launcher selected"));
+    expect(infoSpy).toHaveBeenCalledWith(expect.stringContaining("shell-backed"));
   });
 
   it("throws when no launcher is executable", async () => {

@@ -1747,6 +1747,16 @@ def create_app(config: ProxyConfig | None = None) -> FastAPI:
         """OpenAI Responses API (new API introduced March 2025)."""
         return await proxy.handle_openai_responses(request)
 
+    @app.post("/backend-api/responses")
+    async def openai_codex_responses(request: Request):
+        """OpenAI Codex Responses API path preserved from ChatGPT backend."""
+        return await proxy.handle_openai_responses(request)
+
+    @app.post("/backend-api/codex/responses")
+    async def openai_codex_nested_responses(request: Request):
+        """OpenAI Codex Responses API path for codex-shaped proxy base URLs."""
+        return await proxy.handle_openai_responses(request)
+
     @app.websocket("/v1/responses")
     async def openai_responses_ws(websocket: WebSocket):
         """OpenAI Responses API via WebSocket (Codex gpt-5.4+)."""
@@ -1792,6 +1802,28 @@ def create_app(config: ProxyConfig | None = None) -> FastAPI:
         except Exception as e:
             logger.error(f"Passthrough /v1/responses/{sub_path} failed: {e}")
             return Response(content=str(e), status_code=502)
+
+    @app.websocket("/backend-api/responses")
+    async def openai_codex_responses_ws(websocket: WebSocket):
+        """OpenAI Codex Responses WebSocket path preserved from ChatGPT backend."""
+        await proxy.handle_openai_responses_ws(websocket)
+
+    @app.websocket("/backend-api/codex/responses")
+    async def openai_codex_nested_responses_ws(websocket: WebSocket):
+        """OpenAI Codex Responses WebSocket path for codex-shaped proxy base URLs."""
+        await proxy.handle_openai_responses_ws(websocket)
+
+    @app.api_route("/backend-api/responses/{sub_path:path}", methods=["GET", "POST", "DELETE"])
+    async def openai_codex_responses_sub(request: Request, sub_path: str):
+        """Passthrough for /backend-api/responses/* sub-endpoints."""
+        return await openai_responses_sub(request, sub_path)
+
+    @app.api_route(
+        "/backend-api/codex/responses/{sub_path:path}", methods=["GET", "POST", "DELETE"]
+    )
+    async def openai_codex_nested_responses_sub(request: Request, sub_path: str):
+        """Passthrough for /backend-api/codex/responses/* sub-endpoints."""
+        return await openai_responses_sub(request, sub_path)
 
     # OpenAI Batch API endpoints (with compression!)
     @app.post("/v1/batches")

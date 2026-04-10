@@ -79,6 +79,67 @@ Install automatically selects the `contextEngine` slot for `headroom` on current
 
 Default `proxyPort` is `8787`.
 
+### Upstream gateway routing
+
+By default, the plugin also rewrites the built-in `openai-codex` provider base URL to the active Headroom proxy at runtime. That means Codex provider traffic flows through Headroom, so `/stats` can observe real upstream request and cache activity instead of only local context compression.
+
+This does not replace Headroom's existing Codex routing rules. The proxy already decides between `api.openai.com` and `chatgpt.com/backend-api/codex/responses` based on ChatGPT auth. The plugin change only points OpenClaw's provider config at the active proxy in memory and preserves the rest of the provider config.
+
+You can also route additional provider ids such as `anthropic`, `github-copilot`, `google`, or `openrouter` through the same proxy:
+
+```json
+{
+  "plugins": {
+    "entries": {
+      "headroom": {
+        "enabled": true,
+        "config": {
+          "gatewayProviderIds": ["openai-codex", "anthropic", "github-copilot", "google", "openrouter"]
+        }
+      }
+    }
+  }
+}
+```
+
+When `gatewayProviderIds` is set, it becomes the exact list the plugin rewrites in memory for the current gateway process.
+
+For convenience, the plugin also accepts family aliases:
+- `codex` -> `openai-codex`
+- `claude` -> `anthropic`
+- `copilot` -> `github-copilot`
+- `gemini` -> `google`
+
+When OpenClaw has already resolved a provider's upstream `baseUrl`, the plugin preserves protocol-specific path segments while swapping only the origin. That keeps provider families on the right proxy route:
+- Codex / ChatGPT backend: `/backend-api`
+- OpenAI-compatible providers: `/v1` or `/api/v1`
+- GitHub Copilot Claude-family models: `/anthropic`
+- Gemini: `/v1beta`
+
+GitHub Copilot is a special case because OpenClaw can route it through either OpenAI Responses or Anthropic Messages depending on the selected model. The plugin only rewrites Copilot when OpenClaw has already resolved the upstream `baseUrl`, so it can preserve the correct `/v1` or `/anthropic` path instead of guessing.
+
+The routing is intentionally lightweight and reversible:
+- the plugin does not persist provider `baseUrl` changes back to `openclaw.json`
+- disabling the plugin, clearing `gatewayProviderIds`, or restarting without Headroom restores OpenClaw's normal provider resolution
+- if you want durable provider rewrites, use `headroom wrap openclaw` instead of relying on plugin install side effects
+
+If you need to disable that behavior:
+
+```json
+{
+  "plugins": {
+    "entries": {
+      "headroom": {
+        "enabled": true,
+        "config": {
+          "routeCodexViaProxy": false
+        }
+      }
+    }
+  }
+}
+```
+
 ### Local proxy (auto-start)
 
 When `proxyUrl` points to localhost (or is omitted), the plugin will auto-start `headroom proxy` if no running proxy is detected. Launch order:
@@ -141,6 +202,8 @@ Compression is lossless via CCR (Compress-Cache-Retrieve): originals are stored 
 | `pythonPath` | auto-detected | Optional Python executable override for Python fallback launcher. |
 | `autoStart` | `true` | Auto-start a local `headroom proxy` if not already running (local URLs only; ignored for remote proxies) |
 | `startupTimeoutMs` | `20000` | Time to wait for auto-started proxy to become healthy |
+| `routeCodexViaProxy` | `true` | Rewrite OpenClaw's built-in `openai-codex` provider to use the active Headroom proxy in memory so upstream Codex requests pass through Headroom. |
+| `gatewayProviderIds` | `[]` | Optional explicit list of OpenClaw provider ids to route through the active Headroom proxy in memory. Friendly aliases `codex`, `claude`, `copilot`, and `gemini` are also accepted. When set, this overrides the default `openai-codex` routing list. |
 
 ## Comparison with lossless-claw
 

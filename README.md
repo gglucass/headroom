@@ -135,6 +135,7 @@ headroom wrap codex        # Starts proxy + launches OpenAI Codex CLI
 headroom wrap aider        # Starts proxy + launches Aider
 headroom wrap cursor       # Starts proxy + prints Cursor config
 headroom wrap openclaw     # Installs + configures OpenClaw plugin
+headroom unwrap openclaw   # Disables plugin + restores legacy engine
 ```
 
 Headroom starts a proxy, points your tool at it, and compresses everything automatically.
@@ -174,7 +175,7 @@ Gives your AI tool three MCP tools: `headroom_compress`, `headroom_retrieve`, `h
 | **Any Python proxy** | ASGI Middleware | `app.add_middleware(CompressionMiddleware)` |
 | **Agno agents** | Wrap model | `HeadroomAgnoModel(your_model)` |
 | **LangChain** | Wrap model | `HeadroomChatModel(your_llm)` |
-| **OpenClaw** | One-command wrap | `headroom wrap openclaw` |
+| **OpenClaw** | One-command wrap/unwrap | `headroom wrap openclaw` / `headroom unwrap openclaw` |
 | **Claude Code** | Wrap | `headroom wrap claude` |
 | **Codex / Aider** | Wrap | `headroom wrap codex` or `headroom wrap aider` |
 

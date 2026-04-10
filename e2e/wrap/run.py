@@ -355,6 +355,11 @@ def start_openclaw_gateway(env: dict[str, str], cwd: Path) -> subprocess.Popen[s
     )
 
 
+def stop_openclaw_gateway(env: dict[str, str], cwd: Path) -> None:
+    log("Stopping OpenClaw gateway after e2e verification")
+    run(["openclaw", "gateway", "stop"], env=env, cwd=cwd, timeout=60)
+
+
 def verify_installs() -> None:
     log("Verifying installed packages and binaries")
     for tool in ("headroom", "codex", "aider", "openclaw"):
@@ -617,6 +622,7 @@ def verify_openclaw_wrap(
     finally:
         if gateway_proc is not None:
             stop_process(gateway_proc)
+        stop_openclaw_gateway(base_env, project_dir)
 
 
 def main() -> None:

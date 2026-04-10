@@ -18,6 +18,8 @@ export interface ProxyManagerConfig {
   pythonPath?: string;
   autoStart?: boolean;
   startupTimeoutMs?: number;
+  retryMaxAttempts?: number;
+  connectTimeoutSeconds?: number;
 }
 
 export interface ProxyManagerLogger {
@@ -47,7 +49,12 @@ interface LaunchSpec {
   args: string[];
   checkCommand: string;
   checkArgs: string[];
+  useShell?: boolean;
+  checkUseShell?: boolean;
 }
+
+const HEADROOM_MODULE_DISCOVERY_SNIPPET =
+  "import importlib.util, sys; sys.exit(0 if importlib.util.find_spec('headroom') else 1)";
 
 export class ProxyManager {
   private config: ProxyManagerConfig;
@@ -177,7 +184,7 @@ export class ProxyManager {
     const errors: string[] = [];
 
     for (const spec of specs) {
-      if (!this.canExecute(spec.checkCommand, spec.checkArgs)) {
+      if (!this.canExecute(spec.checkCommand, spec.checkArgs, spec.checkUseShell ?? spec.useShell)) {
         this.logger.debug(`Launcher unavailable: ${spec.label}`);
         continue;
       }
@@ -185,6 +192,7 @@ export class ProxyManager {
       try {
         const child = spawn(spec.command, spec.args, {
           detached: true,
+          shell: spec.useShell === true,
           stdio: "ignore",
         });
         child.unref();
@@ -204,6 +212,16 @@ export class ProxyManager {
 
   private buildLaunchSpecs(host: string, port: string): LaunchSpec[] {
     const commonArgs = ["proxy", "--host", host, "--port", port];
+    const retryMaxAttempts = this.config.retryMaxAttempts;
+    if (Number.isInteger(retryMaxAttempts)) {
+      commonArgs.push("--retry-max-attempts", String(retryMaxAttempts));
+    }
+
+    const connectTimeoutSeconds = this.config.connectTimeoutSeconds;
+    if (Number.isInteger(connectTimeoutSeconds)) {
+      commonArgs.push("--connect-timeout-seconds", String(connectTimeoutSeconds));
+    }
+
     const specs: LaunchSpec[] = [];
 
     // 1) PATH
@@ -211,8 +229,12 @@ export class ProxyManager {
       label: "PATH: headroom",
       command: "headroom",
       args: commonArgs,
-      checkCommand: "headroom",
-      checkArgs: ["--version"],
+      checkCommand: process.platform === "win32" ? "where.exe" : "sh",
+      checkArgs: process.platform === "win32"
+        ? ["headroom"]
+        : ["-lc", "command -v headroom >/dev/null 2>&1"],
+      useShell: process.platform === "win32",
+      checkUseShell: false,
     });
 
     // 2) Local npm install (inside plugin install path)
@@ -224,14 +246,15 @@ export class ProxyManager {
       : [join(localBinDir, "headroom")];
     for (const localBin of localBins) {
       if (!existsSync(localBin)) continue;
-      specs.push({
-        label: `Local npm: ${localBin}`,
-        command: localBin,
-        args: commonArgs,
-        checkCommand: localBin,
-        checkArgs: ["--version"],
-      });
-    }
+        specs.push({
+          label: `Local npm: ${localBin}`,
+          command: localBin,
+          args: commonArgs,
+          checkCommand: localBin,
+          checkArgs: ["--version"],
+          useShell: process.platform === "win32",
+        });
+      }
 
     // 3) Global npm install
     const npmPrefix = this.getNpmGlobalPrefix();
@@ -248,6 +271,7 @@ export class ProxyManager {
           args: commonArgs,
           checkCommand: globalBin,
           checkArgs: ["--version"],
+          useShell: process.platform === "win32",
         });
       }
     }
@@ -260,7 +284,7 @@ export class ProxyManager {
         command: pyCmd,
         args: ["-m", "headroom.cli", ...commonArgs],
         checkCommand: pyCmd,
-        checkArgs: ["-c", "import headroom"],
+        checkArgs: ["-c", HEADROOM_MODULE_DISCOVERY_SNIPPET],
       });
     }
 
@@ -281,9 +305,10 @@ export class ProxyManager {
     return commands;
   }
 
-  private canExecute(command: string, args: string[]): boolean {
+  private canExecute(command: string, args: string[], useShell = false): boolean {
     try {
       const result = spawnSync(command, args, {
+        shell: useShell,
         stdio: "ignore",
         timeout: 5000,
       });

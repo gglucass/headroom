@@ -6,6 +6,7 @@ Contains all OpenAI Chat Completions, Responses API, and passthrough handlers.
 from __future__ import annotations
 
 import asyncio
+import base64
 import contextlib
 import copy
 import json
@@ -22,6 +23,51 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger("headroom.proxy")
+
+
+def _decode_openai_bearer_payload(headers: dict[str, str]) -> dict[str, Any] | None:
+    """Best-effort decode of an OpenAI OAuth bearer token payload.
+
+    OpenClaw's Codex OAuth flow may forward only the bearer token after the
+    provider base URL is overridden. In that case the explicit
+    ``ChatGPT-Account-ID`` header can be missing even though the JWT still
+    carries the account id we need to route to the ChatGPT Codex backend.
+    """
+    auth = headers.get("authorization") or headers.get("Authorization")
+    if not auth:
+        return None
+
+    scheme, _, token = auth.partition(" ")
+    if scheme.lower() != "bearer" or token.count(".") < 2:
+        return None
+
+    payload = token.split(".", 2)[1]
+    payload += "=" * (-len(payload) % 4)
+    try:
+        decoded = base64.urlsafe_b64decode(payload.encode("ascii"))
+        data = json.loads(decoded.decode("utf-8"))
+    except (ValueError, UnicodeDecodeError):
+        return None
+
+    return data if isinstance(data, dict) else None
+
+
+def _resolve_codex_routing_headers(headers: dict[str, str]) -> tuple[dict[str, str], bool]:
+    """Resolve ChatGPT Codex routing hints from explicit headers or OAuth JWT."""
+    resolved = dict(headers)
+    lower_lookup = {k.lower(): k for k in resolved}
+
+    if "chatgpt-account-id" in lower_lookup:
+        return resolved, True
+
+    payload = _decode_openai_bearer_payload(resolved)
+    auth_claims = payload.get("https://api.openai.com/auth") if isinstance(payload, dict) else None
+    account_id = auth_claims.get("chatgpt_account_id") if isinstance(auth_claims, dict) else None
+    if isinstance(account_id, str) and account_id.strip():
+        resolved["ChatGPT-Account-ID"] = account_id.strip()
+        return resolved, True
+
+    return resolved, False
 
 
 class OpenAIHandlerMixin:
@@ -836,9 +882,11 @@ class OpenAIHandlerMixin:
                 f"(backend '{self.anthropic_backend.name}' not used for Responses API)"
             )
 
+        headers, is_chatgpt_auth = _resolve_codex_routing_headers(headers)
+
         # Route to correct endpoint based on auth mode.
         # ChatGPT session auth (codex login) uses chatgpt.com, not api.openai.com.
-        if headers.get("chatgpt-account-id"):
+        if is_chatgpt_auth:
             url = "https://chatgpt.com/backend-api/codex/responses"
         else:
             url = f"{self.OPENAI_API_URL}/v1/responses"
@@ -983,11 +1031,8 @@ class OpenAIHandlerMixin:
             if k.lower() not in _skip_headers:
                 upstream_headers[k] = v
 
-        # Detect ChatGPT session auth vs API key auth.
-        # Codex sends `ChatGPT-Account-ID` header when using `codex login`
-        # (ChatGPT OAuth), which requires routing to chatgpt.com, not api.openai.com.
+        upstream_headers, is_chatgpt_auth = _resolve_codex_routing_headers(upstream_headers)
         _lower_headers = {k.lower(): v for k, v in upstream_headers.items()}
-        is_chatgpt_auth = "chatgpt-account-id" in _lower_headers
 
         # Build upstream WebSocket URL based on auth mode
         if is_chatgpt_auth:

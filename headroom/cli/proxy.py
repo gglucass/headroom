@@ -35,6 +35,18 @@ from .main import main
 @click.option("--no-optimize", is_flag=True, help="Disable optimization (passthrough mode)")
 @click.option("--no-cache", is_flag=True, help="Disable semantic caching")
 @click.option("--no-rate-limit", is_flag=True, help="Disable rate limiting")
+@click.option(
+    "--retry-max-attempts",
+    type=int,
+    default=None,
+    help="Maximum upstream retry attempts for connect/read/5xx failures (default: 3)",
+)
+@click.option(
+    "--connect-timeout-seconds",
+    type=int,
+    default=None,
+    help="Upstream connection timeout in seconds (default: 10)",
+)
 @click.option("--log-file", default=None, help="Path to JSONL log file")
 @click.option("--budget", type=float, default=None, help="Daily budget limit in USD")
 # Code-aware compression (ON by default if installed)
@@ -154,6 +166,8 @@ def proxy(
     no_optimize: bool,
     no_cache: bool,
     no_rate_limit: bool,
+    retry_max_attempts: int | None,
+    connect_timeout_seconds: int | None,
     log_file: str | None,
     budget: float | None,
     no_code_aware: bool,
@@ -232,6 +246,10 @@ def proxy(
         optimize=not no_optimize,
         cache_enabled=not no_cache,
         rate_limit_enabled=not no_rate_limit,
+        retry_max_attempts=retry_max_attempts if retry_max_attempts is not None else 3,
+        connect_timeout_seconds=connect_timeout_seconds
+        if connect_timeout_seconds is not None
+        else 10,
         log_file=log_file,
         budget_limit_usd=budget,
         # Code-aware: ON by default (use --no-code-aware to disable)
