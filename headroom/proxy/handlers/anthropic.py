@@ -9,6 +9,7 @@ import asyncio
 import copy
 import json
 import logging
+import os
 import time
 from datetime import datetime
 from pathlib import Path
@@ -408,7 +409,10 @@ class AnthropicHandlerMixin:
         # Memory: Get user ID when memory is enabled (fallback to "default" for simple DevEx)
         memory_user_id: str | None = None
         if self.memory_handler:
-            memory_user_id = headers.get("x-headroom-user-id", "default")
+            memory_user_id = headers.get(
+                "x-headroom-user-id",
+                os.environ.get("USER", os.environ.get("USERNAME", "default")),
+            )
 
         # Check cache (non-streaming only)
         cache_hit = False

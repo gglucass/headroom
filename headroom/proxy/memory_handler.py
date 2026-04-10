@@ -133,12 +133,43 @@ class MemoryHandler:
             return
 
         if self.config.backend == "local":
+            import os
+
             from headroom.memory.backends.local import LocalBackend, LocalBackendConfig
 
-            backend_config = LocalBackendConfig(db_path=self.config.db_path)
+            # Auto-detect embedder: prefer OpenAI API (no torch/sentence-transformers needed)
+            # if OPENAI_API_KEY is available, else fall back to local embedder
+            embedder_backend = "local"
+            embedder_model = "all-MiniLM-L6-v2"
+            vector_dimension = 384
+            openai_api_key = os.environ.get("OPENAI_API_KEY")
+
+            if openai_api_key:
+                # Check if sentence-transformers is actually available
+                try:
+                    import sentence_transformers  # noqa: F401
+                except ImportError:
+                    # sentence-transformers not installed — use OpenAI embeddings
+                    embedder_backend = "openai"
+                    embedder_model = "text-embedding-3-small"
+                    vector_dimension = 1536
+                    logger.info(
+                        "Memory: Using OpenAI embeddings (sentence-transformers not available)"
+                    )
+
+            backend_config = LocalBackendConfig(
+                db_path=self.config.db_path,
+                embedder_backend=embedder_backend,
+                embedder_model=embedder_model,
+                vector_dimension=vector_dimension,
+                openai_api_key=openai_api_key if embedder_backend == "openai" else None,
+            )
             self._backend = LocalBackend(backend_config)
             await self._backend._ensure_initialized()
-            logger.info(f"Memory: Initialized LocalBackend at {self.config.db_path}")
+            logger.info(
+                f"Memory: Initialized LocalBackend at {self.config.db_path} "
+                f"(embedder: {embedder_backend})"
+            )
 
         elif self.config.backend == "qdrant-neo4j":
             try:

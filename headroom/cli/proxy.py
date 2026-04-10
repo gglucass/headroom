@@ -82,8 +82,8 @@ from .main import main
 )
 @click.option(
     "--memory-db-path",
-    default="headroom_memory.db",
-    help="Path to memory database file (default: headroom_memory.db)",
+    default="",
+    help="Path to memory database file (default: {cwd}/.headroom/memory.db)",
 )
 @click.option("--no-memory-tools", is_flag=True, help="Disable automatic memory tool injection")
 @click.option(

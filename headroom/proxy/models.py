@@ -173,7 +173,7 @@ class ProxyConfig:
     # Memory System
     memory_enabled: bool = False
     memory_backend: Literal["local", "qdrant-neo4j"] = "local"
-    memory_db_path: str = "headroom_memory.db"
+    memory_db_path: str = ""  # Empty = auto: {cwd}/.headroom/memory.db
     memory_inject_tools: bool = True
     traffic_learning_enabled: bool = False
     traffic_learning_agent_type: str = "unknown"  # Which agent is being wrapped

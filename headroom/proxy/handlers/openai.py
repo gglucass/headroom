@@ -208,6 +208,14 @@ class OpenAIHandlerMixin:
         headers.pop("content-length", None)
         tags = self._extract_tags(headers)
 
+        # Memory: Get user ID when memory is enabled
+        memory_user_id: str | None = None
+        if self.memory_handler:
+            memory_user_id = headers.get(
+                "x-headroom-user-id",
+                os.environ.get("USER", os.environ.get("USERNAME", "default")),
+            )
+
         # Rate limiting
         if self.rate_limiter:
             rate_key = headers.get("authorization", "default")[:20]
@@ -416,6 +424,33 @@ class OpenAIHandlerMixin:
                     "to preserve cache stability (openai)"
                 )
 
+        # Memory: inject context and tools for OpenAI requests
+        if self.memory_handler and memory_user_id:
+            try:
+                # Inject memory context (search similar memories, add as system message)
+                if self.memory_handler.config.inject_context:
+                    memory_context = await self.memory_handler.search_and_format_context(
+                        memory_user_id, optimized_messages
+                    )
+                    if memory_context:
+                        # Prepend as system message for OpenAI format
+                        optimized_messages = [
+                            {"role": "system", "content": memory_context},
+                            *optimized_messages,
+                        ]
+                        logger.info(
+                            f"[{request_id}] Memory: Injected {len(memory_context)} chars "
+                            f"of context for user {memory_user_id}"
+                        )
+
+                # Inject memory tools
+                if self.memory_handler.config.inject_tools:
+                    tools, mem_tools_injected = self.memory_handler.inject_tools(tools, "openai")
+                    if mem_tools_injected:
+                        logger.info(f"[{request_id}] Memory: Injected memory tools (openai)")
+            except Exception as e:
+                logger.warning(f"[{request_id}] Memory injection failed: {e}")
+
         body["messages"] = optimized_messages
         if tools is not None:
             body["tools"] = tools
@@ -603,6 +638,7 @@ class OpenAIHandlerMixin:
                 total_input_tokens = optimized_tokens  # fallback
                 output_tokens = 0
                 cache_read_tokens = 0
+                resp_json = None
                 try:
                     resp_json = response.json()
                     usage = resp_json.get("usage", {})
@@ -635,6 +671,25 @@ class OpenAIHandlerMixin:
                         cache_read_tokens=cache_read_tokens,
                         uncached_tokens=uncached_input_tokens,
                     )
+
+                # Memory: handle memory tool calls in OpenAI response
+                if (
+                    self.memory_handler
+                    and memory_user_id
+                    and resp_json
+                    and response.status_code == 200
+                    and self.memory_handler.has_memory_tool_calls(resp_json, "openai")
+                ):
+                    try:
+                        tool_results = await self.memory_handler.handle_memory_tool_calls(
+                            resp_json, memory_user_id, "openai"
+                        )
+                        logger.info(
+                            f"[{request_id}] Memory: Handled {len(tool_results)} "
+                            f"tool call(s) for user {memory_user_id}"
+                        )
+                    except Exception as e:
+                        logger.warning(f"[{request_id}] Memory tool handling failed: {e}")
 
                 # Cache
                 if self.cache and response.status_code == 200:

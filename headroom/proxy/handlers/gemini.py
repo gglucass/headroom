@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import time
 from typing import TYPE_CHECKING
 
@@ -170,6 +171,14 @@ class GeminiHandlerMixin:
         headers.pop("content-length", None)
         tags = self._extract_tags(headers)
 
+        # Memory: Get user ID when memory is enabled
+        memory_user_id: str | None = None
+        if self.memory_handler:
+            memory_user_id = headers.get(
+                "x-headroom-user-id",
+                os.environ.get("USER", os.environ.get("USERNAME", "default")),
+            )
+
         # Rate limiting (use Gemini API key)
         if self.rate_limiter:
             rate_key = headers.get("x-goog-api-key", "default")[:20]
@@ -279,6 +288,26 @@ class GeminiHandlerMixin:
         optimization_latency = (time.time() - start_time) * 1000
 
         # Query Echo: disabled — hurts prefix caching in long conversations.
+
+        # Memory: inject context for Gemini requests
+        if self.memory_handler and memory_user_id:
+            try:
+                if self.memory_handler.config.inject_context:
+                    memory_context = await self.memory_handler.search_and_format_context(
+                        memory_user_id, optimized_messages
+                    )
+                    if memory_context:
+                        # Prepend as system message (will become systemInstruction in Gemini format)
+                        optimized_messages = [
+                            {"role": "system", "content": memory_context},
+                            *optimized_messages,
+                        ]
+                        logger.info(
+                            f"[{request_id}] Memory: Injected {len(memory_context)} chars "
+                            f"of context for user {memory_user_id} (gemini)"
+                        )
+            except Exception as e:
+                logger.warning(f"[{request_id}] Memory injection failed (gemini): {e}")
 
         # Convert back to Gemini format if optimized
         if optimized_messages != messages:

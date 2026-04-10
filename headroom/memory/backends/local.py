@@ -52,10 +52,13 @@ class LocalBackendConfig:
 
     db_path: str = "memory.db"
     graph_db_path: str | None = None  # Derived from db_path if not specified
+    embedder_backend: str = "local"  # "local" (sentence-transformers), "openai", "ollama"
     embedder_model: str = field(default_factory=lambda: ML_MODEL_DEFAULTS.sentence_transformer)
     vector_dimension: int = field(
         default_factory=lambda: ML_MODEL_DEFAULTS.sentence_transformer_dim
     )
+    openai_api_key: str | None = None  # Required when embedder_backend="openai"
+    ollama_base_url: str = "http://localhost:11434"  # For embedder_backend="ollama"
     graph_persist: bool = True  # Use SQLiteGraphStore (bounded, persistent)
     graph_cache_size_kb: int = 8192  # 8MB default
     cache_enabled: bool = True
@@ -123,11 +126,25 @@ class LocalBackend:
         """
         if not self._initialized:
             from headroom.memory import HierarchicalMemory, MemoryConfig
+            from headroom.memory.config import EmbedderBackend
+
+            # Map string embedder_backend to enum
+            embedder_backend_map = {
+                "local": EmbedderBackend.LOCAL,
+                "openai": EmbedderBackend.OPENAI,
+                "ollama": EmbedderBackend.OLLAMA,
+            }
+            embedder_backend = embedder_backend_map.get(
+                self._config.embedder_backend, EmbedderBackend.LOCAL
+            )
 
             mem_config = MemoryConfig(
                 db_path=Path(self._config.db_path),
+                embedder_backend=embedder_backend,
                 embedder_model=self._config.embedder_model,
                 vector_dimension=self._config.vector_dimension,
+                openai_api_key=self._config.openai_api_key,
+                ollama_base_url=self._config.ollama_base_url,
                 cache_enabled=self._config.cache_enabled,
                 cache_max_size=self._config.cache_max_size,
             )

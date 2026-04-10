@@ -422,10 +422,18 @@ class HeadroomProxy(
         # Memory Handler (persistent user memory)
         self.memory_handler: MemoryHandler | None = None
         if config.memory_enabled:
+            # Resolve memory DB path: empty → project-scoped default
+            _mem_db_path = config.memory_db_path
+            if not _mem_db_path:
+                _mem_dir = Path.cwd() / ".headroom"
+                _mem_dir.mkdir(parents=True, exist_ok=True)
+                _mem_db_path = str(_mem_dir / "memory.db")
+                logger.info(f"Memory: Project-scoped DB at {_mem_db_path}")
+
             memory_config = MemoryConfig(
                 enabled=True,
                 backend=config.memory_backend,
-                db_path=config.memory_db_path,
+                db_path=_mem_db_path,
                 inject_tools=config.memory_inject_tools,
                 use_native_tool=config.memory_use_native_tool,
                 inject_context=config.memory_inject_context,
