@@ -114,6 +114,10 @@ class _DummyTokenizer:
 
 
 class _ResponseStub:
+    status_code = 200
+    headers = {"content-type": "application/json", "content-length": "42"}
+    content = b'{"id":"resp_123","output":[{"type":"message"}]}'
+
     def json(self):
         return {"usage": {"input_tokens": 2, "output_tokens": 1}}
 
@@ -182,7 +186,7 @@ def test_handle_openai_responses_routes_chatgpt_auth_to_backend_api(monkeypatch)
 
     monkeypatch.setattr("headroom.tokenizers.get_tokenizer", lambda model: _DummyTokenizer())
 
-    anyio.run(handler.handle_openai_responses, request)
+    response = anyio.run(handler.handle_openai_responses, request)
 
     assert handler.captured_request is not None
     method, url, headers, body = handler.captured_request
@@ -190,6 +194,7 @@ def test_handle_openai_responses_routes_chatgpt_auth_to_backend_api(monkeypatch)
     assert url == "https://chatgpt.com/backend-api/codex/responses"
     assert headers["ChatGPT-Account-ID"] == "acct-from-jwt"
     assert body["input"] == "hello"
+    assert response.status_code == 200
 
 
 class _DummyWebSocket:
