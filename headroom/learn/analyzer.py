@@ -361,7 +361,7 @@ def _call_cli_llm(digest: str, model: str) -> dict:
 
     Raises:
         ValueError: If *model* is not a known CLI backend.
-        RuntimeError: If the CLI exits with a non-zero code or times out.
+        RuntimeError: If the CLI is not installed, exits non-zero, or times out.
     """
     cmd: list[str] | None = None
     for _name, model_name, cmd_parts in _CLI_BACKENDS:
@@ -381,6 +381,11 @@ def _call_cli_llm(digest: str, model: str) -> dict:
             text=True,
             timeout=_CLI_TIMEOUT,
         )
+    except FileNotFoundError:
+        raise RuntimeError(
+            f"`{cmd[0]}` not found in PATH. Install it or use a different backend "
+            "with --model <litellm-model-name>."
+        ) from None
     except subprocess.TimeoutExpired:
         raise RuntimeError(
             f"`{' '.join(cmd)}` did not respond within {_CLI_TIMEOUT}s. "

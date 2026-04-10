@@ -548,6 +548,12 @@ class TestCallCliLlm:
         assert result == {"context_file_rules": [], "memory_file_rules": []}
 
     @patch("headroom.learn.analyzer.subprocess.run")
+    def test_cli_not_installed_raises(self, mock_run: MagicMock):
+        mock_run.side_effect = FileNotFoundError("No such file or directory: 'codex'")
+        with pytest.raises(RuntimeError, match="not found in PATH"):
+            _call_cli_llm("test digest", "codex-cli")
+
+    @patch("headroom.learn.analyzer.subprocess.run")
     def test_timeout_raises_runtime_error(self, mock_run: MagicMock):
         mock_run.side_effect = subprocess.TimeoutExpired(cmd=["claude", "-p"], timeout=120)
         with pytest.raises(RuntimeError, match="did not respond within"):
