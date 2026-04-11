@@ -678,6 +678,7 @@ Legend:
 
 - **native in container** — the command runs entirely inside the Headroom container
 - **host-bridged** — Headroom runs in Docker, but the wrapped external tool still runs on the host
+
 | Command path | Python CLI | Docker-native wrapper | Parity |
 |---|---|---|---|
 | `headroom proxy` | native | native in container | full |
