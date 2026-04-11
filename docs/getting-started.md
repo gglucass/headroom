@@ -40,6 +40,12 @@ irm https://raw.githubusercontent.com/chopratejas/headroom/main/scripts/install.
 
 See [Docker-native install](docker-install.md) for wrapper behavior, compose usage, and host-integrated `wrap` flows.
 
+If you want Headroom to stay up in the background and automatically serve supported tools, use [Persistent Installs](persistent-installs.md):
+
+```bash
+headroom install apply --preset persistent-service --providers auto
+```
+
 ## Quick Start: Proxy Mode (Recommended)
 
 The easiest way to use Headroom is as a proxy server:

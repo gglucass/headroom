@@ -22,6 +22,7 @@ This page is the authoritative reference for the **Python Headroom CLI** exposed
 
 | Command | Purpose | Docker-native parity |
 |---|---|---|
+| `headroom install ...` | Install and manage persistent deployments | **python-native / compose-managed Docker** |
 | `headroom proxy` | Run the Headroom proxy server | **native in container** |
 | `headroom learn` | Learn from past tool-call failures | **native in container** |
 | `headroom perf` | Summarize recent proxy performance | **native in container** |
@@ -29,6 +30,7 @@ This page is the authoritative reference for the **Python Headroom CLI** exposed
 | `headroom memory ...` | Inspect and manage stored memories | **native in container** |
 | `headroom mcp ...` | Install, inspect, remove, or serve MCP integration | **native in container** |
 | `headroom wrap claude` | Start proxy and launch Claude Code | **host-bridged** |
+| `headroom wrap copilot` | Start proxy and launch GitHub Copilot CLI | **host-bridged** |
 | `headroom wrap codex` | Start proxy and launch Codex CLI | **host-bridged** |
 | `headroom wrap aider` | Start proxy and launch Aider | **host-bridged** |
 | `headroom wrap cursor` | Start proxy and print Cursor config guidance | **host-bridged** |
@@ -59,6 +61,7 @@ Options:
 
 Commands:
   evals   Memory evaluation commands.
+  install Install and manage persistent Headroom deployments.
   learn   Learn from past tool call failures to prevent future ones.
   mcp     MCP server for Claude Code integration.
   memory  Manage memories stored in Headroom.
@@ -169,6 +172,28 @@ Commands:
 </details>
 
 <details>
+<summary><code>headroom install --help</code></summary>
+
+```text
+Usage: headroom install [OPTIONS] COMMAND [ARGS]...
+
+  Install and manage persistent Headroom deployments.
+
+Options:
+  -?, --help  Show this message and exit.
+
+Commands:
+  apply    Install a persistent Headroom deployment.
+  remove   Remove a persistent deployment and undo managed config.
+  restart  Restart a persistent deployment.
+  start    Start a persistent deployment.
+  status   Show persistent deployment status.
+  stop     Stop a persistent deployment.
+```
+
+</details>
+
+<details>
 <summary><code>headroom wrap --help</code></summary>
 
 ```text
@@ -179,6 +204,7 @@ Usage: headroom wrap [OPTIONS] COMMAND [ARGS]...
 Commands:
   aider     Launch aider through Headroom proxy.
   claude    Launch Claude Code through Headroom proxy.
+  copilot   Launch GitHub Copilot CLI through Headroom proxy.
   codex     Launch OpenAI Codex CLI through Headroom proxy.
   cursor    Start Headroom proxy for use with Cursor.
   openclaw  Install and configure Headroom OpenClaw plugin in one command.
@@ -536,6 +562,118 @@ headroom mcp serve --proxy-url http://127.0.0.1:9000 --debug
 
 See also: [MCP Tools](mcp.md)
 
+## `headroom install`
+
+Install and manage persistent local Headroom deployments.
+
+### `headroom install apply --help`
+
+```text
+Usage: headroom install apply [OPTIONS]
+
+  Install a persistent Headroom deployment.
+
+Options:
+  --preset [persistent-service|persistent-task|persistent-docker]
+                                  Persistent runtime preset to install.
+                                  [default: persistent-service]
+  --runtime [python|docker]       Runtime used to execute Headroom for
+                                  service/task modes.  [default: python]
+  --scope [provider|user|system]  Where to apply persistent configuration.
+                                  [default: user]
+  --providers [auto|all|manual]   Target selection mode for direct tool
+                                  configuration.  [default: auto]
+  --target [claude|copilot|codex|aider|cursor|openclaw]
+                                  Tool target to configure when --providers
+                                  manual is used.
+  --profile TEXT                  Deployment profile name.  [default: default]
+  -p, --port INTEGER              Persistent proxy port.  [default: 8787]
+  --backend TEXT                  Proxy backend for the persistent runtime.
+                                  [default: anthropic]
+  --anyllm-provider TEXT          Provider for any-llm backends when --backend
+                                  anyllm is used.
+  --region TEXT                   Cloud region for Bedrock / Vertex style
+                                  backends.
+  --mode TEXT                     Proxy optimization mode.  [default: token]
+  --memory                        Enable persistent memory in the proxy runtime.
+  --no-telemetry                  Disable anonymous telemetry in the runtime.
+  --image TEXT                    Docker image to use when runtime=docker or
+                                  preset=persistent-docker.  [default:
+                                  ghcr.io/chopratejas/headroom:latest]
+  -?, --help                      Show this message and exit.
+```
+
+### `headroom install apply`
+
+```bash
+headroom install apply --preset persistent-service --providers auto
+headroom install apply --preset persistent-task --providers manual --target claude --target codex
+headroom install apply --preset persistent-docker --scope user
+```
+
+| Option | Default | Meaning |
+|---|---|---|
+| `--preset` | `persistent-service` | Lifecycle preset: `persistent-service`, `persistent-task`, or `persistent-docker` |
+| `--runtime` | `python` | Runtime used for service/task installs: `python` or `docker` |
+| `--scope` | `user` | Config scope: `provider`, `user`, or `system` |
+| `--providers` | `auto` | Target selection mode: `auto`, `all`, or `manual` |
+| `--target` | repeatable | Tool target used with `--providers manual` |
+| `--profile` | `default` | Deployment profile name |
+| `--port`, `-p` | `8787` | Persistent proxy port |
+| `--backend` | `anthropic` | Backend for the managed runtime |
+| `--anyllm-provider` | unset | Provider name used with `--backend anyllm` |
+| `--region` | unset | Cloud region override |
+| `--mode` | `token` | Proxy optimization mode |
+| `--memory` | off | Enable persistent memory in the managed runtime |
+| `--no-telemetry` | off | Disable anonymous telemetry |
+| `--image` | `ghcr.io/chopratejas/headroom:latest` | Docker image for Docker-backed installs |
+
+`apply` stores a manifest under `~/.headroom/deploy/<profile>/manifest.json`, applies managed tool configuration, starts the chosen runtime, and waits for `readyz`.
+
+### `headroom install status`
+
+```bash
+headroom install status
+headroom install status --profile default
+```
+
+Shows the stored profile, preset, runtime, supervisor kind, scope, port, runtime status, readiness, and backend from `/health`.
+
+### `headroom install start`
+
+```bash
+headroom install start
+headroom install start --profile default
+```
+
+Starts a previously installed deployment profile without reapplying mutations.
+
+### `headroom install stop`
+
+```bash
+headroom install stop
+```
+
+Stops the managed runtime for an installed deployment profile.
+
+### `headroom install restart`
+
+```bash
+headroom install restart
+```
+
+Stops and starts the selected deployment profile.
+
+### `headroom install remove`
+
+```bash
+headroom install remove
+```
+
+Stops the runtime, removes installed supervisor artifacts, reverts managed configuration changes, and deletes the stored manifest.
+
+See also: [Persistent Installs](persistent-installs.md)
+
 ## `headroom wrap`
 
 Wrap external coding tools so their traffic flows through Headroom.
@@ -588,6 +726,29 @@ headroom wrap codex --backend anyllm --anyllm-provider groq
 | `codex_args...` | passthrough | Additional Codex CLI arguments |
 
 Requires the `codex` binary on the host.
+
+### `headroom wrap copilot`
+
+```bash
+headroom wrap copilot -- --model claude-sonnet-4-20250514
+headroom wrap copilot --backend anyllm --anyllm-provider groq -- --model gpt-4o
+```
+
+| Option / arg | Default | Meaning |
+|---|---|---|
+| `--port`, `-p` | `8787` | Proxy port |
+| `--no-rtk` | off | Skip `rtk` installation and GitHub Copilot instructions injection |
+| `--no-proxy` | off | Reuse an existing proxy |
+| `--learn` | off | Enable live traffic learning |
+| `--backend` | unset | Proxy backend override |
+| `--anyllm-provider` | unset | `anyllm` provider override |
+| `--region` | unset | Cloud region override |
+| `--provider-type` | `auto` | Force Copilot BYOK provider type (`anthropic` or `openai`) |
+| `--wire-api` | unset | OpenAI wire API override for OpenAI-style backends |
+| `--verbose`, `-v` | off | Verbose output |
+| `copilot_args...` | passthrough | Additional Copilot CLI arguments |
+
+Requires the `copilot` binary on the host. When a matching persistent deployment exists on the requested port, `wrap copilot` reuses or recovers it before falling back to an ephemeral proxy.
 
 ### `headroom wrap aider`
 
@@ -691,14 +852,16 @@ Legend:
 | `headroom mcp uninstall` | native | native in container | full |
 | `headroom mcp status` | native | native in container | full |
 | `headroom mcp serve` | native | native in container | full |
+| `headroom install ...` | native | compose-managed persistent Docker path | partial |
 | `headroom wrap claude` | native | host-bridged | partial |
+| `headroom wrap copilot` | native | host-bridged | partial |
 | `headroom wrap codex` | native | host-bridged | partial |
 | `headroom wrap aider` | native | host-bridged | partial |
 | `headroom wrap cursor` | native | host-bridged | partial |
 | `headroom wrap openclaw` | native | host-bridged | partial |
 | `headroom unwrap openclaw` | native | host-bridged | partial |
 
-For the Docker-native execution model itself, see [Docker-Native Install](docker-install.md).
+For the Docker-native execution model itself, see [Docker-Native Install](docker-install.md). For persistent service/task/docker lifecycle management, see [Persistent Installs](persistent-installs.md).
 
 ## Hidden and compatibility-only command paths
 

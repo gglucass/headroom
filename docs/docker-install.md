@@ -85,6 +85,24 @@ OpenClaw remains host-native in Docker-native mode:
 
 Use `docker/docker-compose.native.yml` when you want an explicit compose-managed proxy or CLI shell.
 
+### Persistent Docker runtime
+
+The `proxy` service now uses `restart: unless-stopped`, so compose can act as the always-on Docker runtime for Headroom:
+
+```bash
+export HEADROOM_HOST_HOME="$HOME"
+export HEADROOM_WORKSPACE="$PWD"
+docker compose -f docker/docker-compose.native.yml up -d proxy
+```
+
+```powershell
+$env:HEADROOM_HOST_HOME = $HOME
+$env:HEADROOM_WORKSPACE = (Get-Location).Path
+docker compose -f docker/docker-compose.native.yml up -d proxy
+```
+
+This is the recommended persistent-Docker path when you installed Headroom through the Docker-native host wrapper.
+
 ### macOS / Linux
 
 ```bash
@@ -128,3 +146,4 @@ That keeps provider auth and runtime config working without maintaining a separa
 - Docker is the only required Headroom runtime dependency on the host.
 - Wrapped tools like Claude Code, Codex CLI, Aider, and Cursor still run on the host when you use `headroom wrap ...`.
 - The install scripts are idempotent: rerunning them refreshes the wrapper and image without duplicating shell profile blocks.
+- For persistent service and task installs, use the Python-native `headroom install ...` workflow described in [Persistent Installs](persistent-installs.md).

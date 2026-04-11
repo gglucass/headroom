@@ -76,6 +76,8 @@ Headroom works as a **transparent proxy** (zero code changes), a **Python functi
 
     That's it. Your existing code works unchanged, with 40-90% fewer tokens.
 
+    Want an always-on local runtime instead? See [Persistent Installs &rarr;](persistent-installs.md).
+
 === "Python SDK"
 
     ```python
@@ -103,6 +105,8 @@ Headroom works as a **transparent proxy** (zero code changes), a **Python functi
     ```
 
     Starts the proxy, points your tool at it, compresses everything automatically.
+
+    If you prefer an always-on proxy that `wrap` can reuse or recover, see [Persistent Installs &rarr;](persistent-installs.md).
 
 === "TypeScript SDK"
 

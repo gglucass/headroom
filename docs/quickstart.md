@@ -33,6 +33,14 @@ curl -fsSL https://raw.githubusercontent.com/chopratejas/headroom/main/scripts/i
 
 See [Docker-native install](docker-install.md) if you want Docker to provide the Headroom runtime while your agent CLIs stay on the host.
 
+**Persistent background runtime:**
+
+```bash
+headroom install apply --preset persistent-service --providers auto
+```
+
+See [Persistent Installs](persistent-installs.md) if you want Headroom to stay up in the background and be reused by `wrap`.
+
 ---
 
 ## Option 1: Proxy Server (Zero Code Changes)

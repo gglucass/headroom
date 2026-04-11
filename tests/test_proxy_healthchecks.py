@@ -64,6 +64,34 @@ def test_health_preserves_backwards_compatible_config_payload(client):
     }
 
 
+def test_health_includes_deployment_metadata_when_present(monkeypatch):
+    monkeypatch.setenv("HEADROOM_DEPLOYMENT_PROFILE", "default")
+    monkeypatch.setenv("HEADROOM_DEPLOYMENT_PRESET", "persistent-service")
+    monkeypatch.setenv("HEADROOM_DEPLOYMENT_RUNTIME", "python")
+    monkeypatch.setenv("HEADROOM_DEPLOYMENT_SUPERVISOR", "service")
+    monkeypatch.setenv("HEADROOM_DEPLOYMENT_SCOPE", "user")
+
+    config = ProxyConfig(
+        optimize=False,
+        cache_enabled=False,
+        rate_limit_enabled=False,
+        cost_tracking_enabled=False,
+    )
+    app = create_app(config)
+
+    with TestClient(app) as client:
+        response = client.get("/health")
+
+    assert response.status_code == 200
+    assert response.json()["deployment"] == {
+        "profile": "default",
+        "preset": "persistent-service",
+        "runtime": "python",
+        "supervisor": "service",
+        "scope": "user",
+    }
+
+
 def test_health_remains_200_when_proxy_is_not_ready(client):
     client.app.state.ready = False
 

@@ -92,6 +92,11 @@ PowerShell:
 irm https://raw.githubusercontent.com/chopratejas/headroom/main/scripts/install.ps1 | iex
 ```
 
+**Persistent local runtime:**
+```bash
+headroom install apply --preset persistent-service --providers auto
+```
+
 ### Any agent — one function
 
 **Python:**
@@ -137,7 +142,7 @@ Use `cache` mode for long-running chats where preserving prior-turn bytes improv
 
 Works with any language, any tool, any framework. **[Proxy docs](docs/proxy.md)**
 
-Prefer Docker as the runtime provider? See **[Docker-native install](docs/docker-install.md)**.
+Prefer Docker as the runtime provider? See **[Docker-native install](docs/docker-install.md)**. Want Headroom to stay up in the background? See **[Persistent installs](docs/persistent-installs.md)**.
 
 ### Coding agents — one command
 
@@ -197,6 +202,7 @@ Gives your AI tool three MCP tools: `headroom_compress`, `headroom_retrieve`, `h
 | **Claude Code** | Wrap | `headroom wrap claude` |
 | **GitHub Copilot CLI** | Wrap | `headroom wrap copilot -- --model claude-sonnet-4-20250514` |
 | **Codex / Aider** | Wrap | `headroom wrap codex` or `headroom wrap aider` |
+| **Always-on local proxy** | Persistent install | `headroom install apply --preset persistent-service --providers auto` |
 
 **[Full Integration Guide](docs/integration-guide.md)** | **[TypeScript SDK](docs/typescript-sdk.md)**
 

@@ -436,6 +436,52 @@ def _detect_running_proxy_backend(port: int) -> str | None:
     return backend if isinstance(backend, str) else None
 
 
+def _find_persistent_manifest(port: int) -> Any:
+    """Return a matching persistent deployment manifest for the requested port."""
+    from headroom.install.state import list_manifests
+
+    manifests = [manifest for manifest in list_manifests() if manifest.port == port]
+    manifests.sort(key=lambda manifest: (manifest.profile != "default", manifest.profile))
+    return manifests[0] if manifests else None
+
+
+def _recover_persistent_proxy(port: int) -> bool:
+    """Start or recover a matching persistent deployment for the requested port."""
+    from headroom.install.health import probe_ready
+    from headroom.install.models import InstallPreset, SupervisorKind
+    from headroom.install.runtime import start_detached_agent, start_persistent_docker, wait_ready
+    from headroom.install.supervisors import start_supervisor
+
+    manifest = _find_persistent_manifest(port)
+    if manifest is None:
+        return False
+
+    if probe_ready(manifest.health_url):
+        click.echo(f"  Reusing persistent deployment '{manifest.profile}' on port {port}")
+        return True
+
+    click.echo(f"  Recovering persistent deployment '{manifest.profile}' on port {port}...")
+    try:
+        if manifest.preset == InstallPreset.PERSISTENT_DOCKER.value:
+            start_persistent_docker(manifest)
+        elif manifest.supervisor_kind == SupervisorKind.SERVICE.value:
+            start_supervisor(manifest)
+        else:
+            start_detached_agent(manifest.profile)
+    except Exception as exc:
+        click.echo(
+            f"  Warning: could not recover persistent deployment '{manifest.profile}': {exc}"
+        )
+        return False
+
+    if wait_ready(manifest, timeout_seconds=45):
+        click.echo(f"  Recovered persistent deployment '{manifest.profile}' on port {port}")
+        return True
+
+    click.echo(f"  Warning: persistent deployment '{manifest.profile}' did not become ready")
+    return False
+
+
 def _copilot_model_configured(copilot_args: tuple[str, ...], env: dict[str, str]) -> bool:
     """Return True when Copilot BYOK model selection is configured."""
     if env.get("COPILOT_MODEL") or env.get("COPILOT_PROVIDER_MODEL_ID"):
@@ -462,6 +508,16 @@ def _ensure_proxy(
 ) -> subprocess.Popen | None:
     """Start or verify proxy. Returns process handle if we started it."""
     if not no_proxy:
+        manifest = _find_persistent_manifest(port)
+        if manifest is not None:
+            from headroom.install.health import probe_ready
+
+            if probe_ready(manifest.health_url):
+                click.echo(f"  Proxy already running on port {port}")
+                return None
+            if _recover_persistent_proxy(port):
+                return None
+
         if _check_proxy(port):
             click.echo(f"  Proxy already running on port {port}")
             return None

@@ -87,6 +87,7 @@ nav:
     - Quickstart: quickstart.md
     - Installation: getting-started.md
     - Docker-Native Install: docker-install.md
+    - Persistent Installs: persistent-installs.md
     - Configuration: configuration.md
   - User Guide:
     - Proxy Server: proxy.md

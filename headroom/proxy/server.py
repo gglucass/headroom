@@ -1093,6 +1093,15 @@ def create_app(config: ProxyConfig | None = None) -> FastAPI:
             "uptime_seconds": _uptime_seconds(),
             "checks": checks,
         }
+        deployment_profile = os.environ.get("HEADROOM_DEPLOYMENT_PROFILE")
+        if deployment_profile:
+            payload["deployment"] = {
+                "profile": deployment_profile,
+                "preset": os.environ.get("HEADROOM_DEPLOYMENT_PRESET"),
+                "runtime": os.environ.get("HEADROOM_DEPLOYMENT_RUNTIME"),
+                "supervisor": os.environ.get("HEADROOM_DEPLOYMENT_SUPERVISOR"),
+                "scope": os.environ.get("HEADROOM_DEPLOYMENT_SCOPE"),
+            }
         if include_config:
             payload["config"] = {
                 "backend": config.backend,
