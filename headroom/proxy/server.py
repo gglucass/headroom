@@ -127,7 +127,7 @@ from headroom.proxy.prometheus_metrics import PrometheusMetrics  # noqa: F401
 from headroom.proxy.rate_limiter import TokenBucketRateLimiter  # noqa: F401
 from headroom.proxy.request_logger import RequestLogger  # noqa: F401
 from headroom.proxy.semantic_cache import SemanticCache  # noqa: F401
-from headroom.subscription.base import get_quota_registry
+from headroom.subscription.base import get_quota_registry, reset_quota_registry
 from headroom.subscription.codex_rate_limits import get_codex_rate_limit_state
 from headroom.subscription.copilot_quota import get_copilot_quota_tracker
 from headroom.subscription.tracker import (
@@ -670,7 +670,10 @@ class HeadroomProxy(
             logger.info("CCR: DISABLED")
         logger.info(f"Savings history: {self.metrics.savings_tracker.storage_path}")
 
-        # Register all quota trackers and start them via the registry
+        # Reset and rebuild the quota tracker registry for this server instance.
+        # reset_quota_registry() ensures a clean slate when the proxy is restarted
+        # (e.g. in tests that spin up multiple app instances in the same process).
+        reset_quota_registry()
         registry = get_quota_registry()
         tracker = configure_subscription_tracker(
             poll_interval_s=self.config.subscription_poll_interval_s,
