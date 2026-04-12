@@ -370,6 +370,66 @@
                 </template>
             </div>
         </template>
+
+        <!-- GitHub Copilot Quota panel -->
+        <template x-if="stats.copilot_quota && stats.copilot_quota.latest">
+            <div class="bg-surface rounded-lg p-4 border border-border mb-6">
+                <div class="flex justify-between items-center mb-3">
+                    <div class="text-sm font-medium text-gray-300">GitHub Copilot Quota</div>
+                    <div class="flex items-center gap-2">
+                        <template x-if="stats.copilot_quota.latest.copilot_plan">
+                            <span class="text-xs text-gray-500 font-mono capitalize" x-text="stats.copilot_quota.latest.copilot_plan + ' plan'"></span>
+                        </template>
+                        <template x-if="stats.copilot_quota.latest.login">
+                            <span class="text-xs text-gray-400" x-text="'@' + stats.copilot_quota.latest.login"></span>
+                        </template>
+                    </div>
+                </div>
+
+                <!-- Per-category quota bars -->
+                <template x-for="[catKey, catLabel] in [['chat', 'Chat'], ['completions', 'Completions'], ['premium_interactions', 'Premium']]" :key="catKey">
+                    <template x-if="stats.copilot_quota.latest.categories[catKey]">
+                        <div class="mb-3">
+                            <div class="flex justify-between items-center mb-1">
+                                <span class="text-xs text-gray-400" x-text="catLabel"></span>
+                                <div class="flex items-center gap-2">
+                                    <template x-if="stats.copilot_quota.latest.categories[catKey].unlimited">
+                                        <span class="text-xs text-purple-400">∞ Unlimited</span>
+                                    </template>
+                                    <template x-if="!stats.copilot_quota.latest.categories[catKey].unlimited">
+                                        <span class="text-xs font-mono"
+                                            :class="(stats.copilot_quota.latest.categories[catKey].used_percent||0) > 80 ? 'text-red-400' : (stats.copilot_quota.latest.categories[catKey].used_percent||0) > 50 ? 'text-amber-400' : 'text-emerald-400'"
+                                            x-text="(stats.copilot_quota.latest.categories[catKey].used_percent||0).toFixed(0) + '% used'"></span>
+                                    </template>
+                                    <template x-if="stats.copilot_quota.latest.categories[catKey].remaining !== null && stats.copilot_quota.latest.categories[catKey].remaining !== undefined && !stats.copilot_quota.latest.categories[catKey].unlimited">
+                                        <span class="text-xs text-gray-500 font-mono"
+                                            x-text="stats.copilot_quota.latest.categories[catKey].remaining + ' left'"></span>
+                                    </template>
+                                </div>
+                            </div>
+                            <template x-if="!stats.copilot_quota.latest.categories[catKey].unlimited">
+                                <div class="h-1.5 bg-gray-700 rounded-full overflow-hidden">
+                                    <div class="h-full rounded-full transition-all duration-500"
+                                         :class="(stats.copilot_quota.latest.categories[catKey].used_percent||0) > 80 ? 'bg-red-500' : (stats.copilot_quota.latest.categories[catKey].used_percent||0) > 50 ? 'bg-amber-500' : 'bg-emerald-500'"
+                                         :style="'width: ' + Math.min(stats.copilot_quota.latest.categories[catKey].used_percent||0, 100) + '%'"></div>
+                                </div>
+                            </template>
+                            <template x-if="stats.copilot_quota.latest.categories[catKey].overage_count > 0">
+                                <div class="text-xs text-amber-400 mt-0.5"
+                                     x-text="stats.copilot_quota.latest.categories[catKey].overage_count + ' overage uses'"></div>
+                            </template>
+                        </div>
+                    </template>
+                </template>
+
+                <!-- Reset date -->
+                <template x-if="stats.copilot_quota.latest.quota_reset_date_utc">
+                    <div class="text-xs text-gray-500 mt-2"
+                         x-text="'Monthly quota resets: ' + stats.copilot_quota.latest.quota_reset_date_utc"></div>
+                </template>
+            </div>
+        </template>
+
         <template x-if="(stats.prefix_cache?.totals?.requests || 0) > 0">
             <div class="bg-surface rounded-lg p-4 border border-border mb-6">
                 <div class="flex justify-between items-center mb-3">

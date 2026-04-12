@@ -9,6 +9,14 @@ from headroom.subscription.codex_rate_limits import (
     get_codex_rate_limit_state,
     parse_codex_rate_limits,
 )
+from headroom.subscription.copilot_quota import (
+    CopilotQuotaCategory,
+    CopilotQuotaSnapshot,
+    CopilotQuotaState,
+    discover_github_token,
+    get_copilot_quota_tracker,
+    parse_copilot_quota,
+)
 from headroom.subscription.models import (
     ExtraUsage,
     HeadroomContribution,
@@ -30,6 +38,9 @@ __all__ = [
     "CodexRateLimitSnapshot",
     "CodexRateLimitState",
     "CodexRateLimitWindow",
+    "CopilotQuotaCategory",
+    "CopilotQuotaSnapshot",
+    "CopilotQuotaState",
     "ExtraUsage",
     "HeadroomContribution",
     "RateLimitWindow",
@@ -40,9 +51,12 @@ __all__ = [
     "WindowDiscrepancy",
     "WindowTokens",
     "configure_subscription_tracker",
+    "discover_github_token",
     "get_codex_rate_limit_state",
+    "get_copilot_quota_tracker",
     "get_subscription_tracker",
     "parse_codex_rate_limits",
+    "parse_copilot_quota",
     "read_cached_oauth_token",
     "shutdown_subscription_tracker",
 ]

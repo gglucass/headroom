@@ -128,6 +128,7 @@ from headroom.proxy.rate_limiter import TokenBucketRateLimiter  # noqa: F401
 from headroom.proxy.request_logger import RequestLogger  # noqa: F401
 from headroom.proxy.semantic_cache import SemanticCache  # noqa: F401
 from headroom.subscription.codex_rate_limits import get_codex_rate_limit_state
+from headroom.subscription.copilot_quota import discover_github_token, get_copilot_quota_tracker
 from headroom.subscription.tracker import (
     configure_subscription_tracker,
     get_subscription_tracker,
@@ -158,6 +159,14 @@ _merge_cost_stats = merge_cost_stats
 def _get_codex_rate_limit_stats() -> dict | None:
     """Return the latest Codex rate-limit snapshot for the /stats endpoint."""
     return get_codex_rate_limit_state().get_stats()
+
+
+def _get_copilot_quota_stats() -> dict | None:
+    """Return the latest GitHub Copilot quota snapshot for the /stats endpoint."""
+    state = get_copilot_quota_tracker().state
+    if state.get("latest") is None and state.get("last_error") is None:
+        return None
+    return state
 
 
 logging.basicConfig(
@@ -689,6 +698,17 @@ class HeadroomProxy(
         else:
             logger.info("Subscription tracking: DISABLED")
 
+        # Start GitHub Copilot quota tracking if a GitHub token is available
+        if discover_github_token():
+            copilot_tracker = get_copilot_quota_tracker()
+            await copilot_tracker.start()
+            logger.info("GitHub Copilot quota tracking: ENABLED")
+        else:
+            logger.info(
+                "GitHub Copilot quota tracking: DISABLED "
+                "(set GITHUB_TOKEN or GITHUB_COPILOT_GITHUB_TOKEN to enable)"
+            )
+
         # Log anonymous telemetry status so operators can see it in the log stream
         if is_telemetry_enabled():
             logger.info(
@@ -709,6 +729,9 @@ class HeadroomProxy(
 
         # Stop subscription tracker
         await shutdown_subscription_tracker()
+
+        # Stop Copilot quota tracker
+        await get_copilot_quota_tracker().stop()
 
         # Print final stats
         self._print_summary()
@@ -1401,6 +1424,7 @@ def create_app(config: ProxyConfig | None = None) -> FastAPI:
             if get_subscription_tracker()
             else None,
             "codex_rate_limits": _get_codex_rate_limit_stats(),
+            "copilot_quota": _get_copilot_quota_stats(),
         }
 
     @app.get("/stats-history")
