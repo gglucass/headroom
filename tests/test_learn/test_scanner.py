@@ -103,6 +103,38 @@ class TestGreedyPathDecode:
         result = _greedy_path_decode(tmp_path, ["my", "cool", "project", "nosync", "headroom"])
         assert result == tmp_path / "my-cool-project.nosync" / "headroom"
 
+    # ---- Underscore tests (issue #159) ----
+
+    def test_single_underscore_in_dirname(self, tmp_path: Path) -> None:
+        """Directory name contains one literal underscore (e.g. my_project)."""
+        _make_dirs(tmp_path, "my_project")
+        result = _greedy_path_decode(tmp_path, ["my", "project"])
+        assert result == tmp_path / "my_project"
+
+    def test_multiple_underscores_in_dirname(self, tmp_path: Path) -> None:
+        """Directory name contains multiple underscores (e.g. my_cool_project)."""
+        _make_dirs(tmp_path, "my_cool_project")
+        result = _greedy_path_decode(tmp_path, ["my", "cool", "project"])
+        assert result == tmp_path / "my_cool_project"
+
+    def test_underscore_nested_path(self, tmp_path: Path) -> None:
+        """Nested path like org/my_project should decode correctly."""
+        _make_dirs(tmp_path, "org/my_project")
+        result = _greedy_path_decode(tmp_path, ["org", "my", "project"])
+        assert result == tmp_path / "org" / "my_project"
+
+    def test_mixed_underscore_and_hyphen_in_dirname(self, tmp_path: Path) -> None:
+        """Directory with both hyphens and underscores (e.g. my-cool_project)."""
+        _make_dirs(tmp_path, "my-cool_project")
+        result = _greedy_path_decode(tmp_path, ["my", "cool", "project"])
+        assert result == tmp_path / "my-cool_project"
+
+    def test_underscore_dir_containing_hyphen_subdir(self, tmp_path: Path) -> None:
+        """Path like my_app/sub-module — underscore parent + hyphen child."""
+        _make_dirs(tmp_path, "my_app/sub-module")
+        result = _greedy_path_decode(tmp_path, ["my", "app", "sub", "module"])
+        assert result == tmp_path / "my_app" / "sub-module"
+
     def test_nonexistent_path_returns_none(self, tmp_path: Path) -> None:
         result = _greedy_path_decode(tmp_path, ["does", "not", "exist"])
         assert result is None
@@ -229,6 +261,38 @@ class TestDecodeProjectPath:
         project.mkdir(parents=True)
 
         encoded = "-" + str(project)[1:].replace("/", "-").replace(".", "-")
+        result = _decode_project_path(encoded)
+
+        if str(users_tmp).startswith("/Users/"):
+            assert result == project
+        else:
+            assert result is None or result == project
+
+    def test_underscore_dirname_via_greedy(self, users_tmp: Path) -> None:
+        """my_project — underscore in directory name (issue #159).
+
+        Claude Code encodes /Users/foo/org/my_project as
+        -Users-foo-org-my-project.  Simple replace gives
+        …/org/my/project which does not exist, so the greedy decoder
+        must reconstruct my_project from tokens ['my', 'project'].
+        """
+        project = users_tmp / "org" / "my_project"
+        project.mkdir(parents=True)
+
+        encoded = "-" + str(project)[1:].replace("/", "-")
+        result = _decode_project_path(encoded)
+
+        if str(users_tmp).startswith("/Users/"):
+            assert result == project
+        else:
+            assert result is None or result == project
+
+    def test_multi_underscore_dirname_via_greedy(self, users_tmp: Path) -> None:
+        """my_cool_project — multiple underscores (issue #159)."""
+        project = users_tmp / "my_cool_project"
+        project.mkdir(parents=True)
+
+        encoded = "-" + str(project)[1:].replace("/", "-")
         result = _decode_project_path(encoded)
 
         if str(users_tmp).startswith("/Users/"):
