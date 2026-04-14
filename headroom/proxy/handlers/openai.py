@@ -672,7 +672,9 @@ class OpenAIHandlerMixin:
                         uncached_tokens=uncached_input_tokens,
                     )
 
-                # Memory: handle memory tool calls in OpenAI response
+                # Memory: handle memory tool calls in OpenAI Chat Completions response.
+                # After executing tools, send a continuation request so the model
+                # can produce a final user-facing response (not just tool_calls).
                 if (
                     self.memory_handler
                     and memory_user_id
@@ -684,10 +686,29 @@ class OpenAIHandlerMixin:
                         tool_results = await self.memory_handler.handle_memory_tool_calls(
                             resp_json, memory_user_id, "openai"
                         )
-                        logger.info(
-                            f"[{request_id}] Memory: Handled {len(tool_results)} "
-                            f"tool call(s) for user {memory_user_id}"
-                        )
+                        if tool_results:
+                            # Build continuation: original messages + assistant tool_calls + tool results
+                            assistant_msg = resp_json.get("choices", [{}])[0].get("message", {})
+                            continuation_messages = list(optimized_messages)
+                            continuation_messages.append(assistant_msg)
+                            continuation_messages.extend(tool_results)
+
+                            continuation_body = {
+                                **body,
+                                "messages": continuation_messages,
+                            }
+
+                            cont_response = await self._retry_request(
+                                "POST", url, headers, continuation_body
+                            )
+                            if cont_response.status_code == 200:
+                                resp_json = cont_response.json()
+                                response = cont_response
+
+                            logger.info(
+                                f"[{request_id}] Memory: Handled {len(tool_results)} "
+                                f"tool call(s) with continuation for user {memory_user_id}"
+                            )
                     except Exception as e:
                         logger.warning(f"[{request_id}] Memory tool handling failed: {e}")
 
