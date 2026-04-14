@@ -963,14 +963,29 @@ class OpenAIHandlerMixin:
                             f"of context into instructions for user {memory_user_id}"
                         )
 
-                # Inject memory tools
+                # Inject memory tools (Responses API format)
                 if self.memory_handler.config.inject_tools:
                     resp_tools = body.get("tools") or []
                     resp_tools, mem_tools_injected = self.memory_handler.inject_tools(
                         resp_tools, "openai"
                     )
                     if mem_tools_injected:
-                        body["tools"] = resp_tools
+                        # Convert Chat Completions format to Responses API format
+                        converted_tools = []
+                        for t in resp_tools:
+                            if t.get("type") == "function" and "function" in t:
+                                fn = t["function"]
+                                converted_tools.append(
+                                    {
+                                        "type": "function",
+                                        "name": fn.get("name"),
+                                        "description": fn.get("description", ""),
+                                        "parameters": fn.get("parameters", {}),
+                                    }
+                                )
+                            else:
+                                converted_tools.append(t)
+                        body["tools"] = converted_tools
                         logger.info(
                             f"[{request_id}] Memory: Injected memory tools (openai/responses)"
                         )
@@ -1037,13 +1052,67 @@ class OpenAIHandlerMixin:
                     and self.memory_handler.has_memory_tool_calls(resp_json, "openai")
                 ):
                     try:
-                        tool_results = await self.memory_handler.handle_memory_tool_calls(
-                            resp_json, memory_user_id, "openai"
-                        )
-                        logger.info(
-                            f"[{request_id}] Memory: Handled {len(tool_results)} "
-                            f"tool call(s) for user {memory_user_id} (responses)"
-                        )
+                        # Extract function_call items from output
+                        from headroom.proxy.memory_handler import MEMORY_TOOL_NAMES
+
+                        output_items = resp_json.get("output", [])
+                        memory_fc_items = [
+                            item
+                            for item in output_items
+                            if isinstance(item, dict)
+                            and item.get("type") == "function_call"
+                            and item.get("name") in MEMORY_TOOL_NAMES
+                        ]
+
+                        # Execute memory tool calls
+                        tool_outputs: list[dict[str, Any]] = []
+                        for fc in memory_fc_items:
+                            call_id = fc.get("call_id", fc.get("id", ""))
+                            name = fc.get("name", "")
+                            args_str = fc.get("arguments", "{}")
+                            try:
+                                args = json.loads(args_str)
+                            except json.JSONDecodeError:
+                                args = {}
+
+                            await self.memory_handler._ensure_initialized()
+                            if self.memory_handler._backend:
+                                result = await self.memory_handler._execute_memory_tool(
+                                    name, args, memory_user_id, "openai"
+                                )
+                            else:
+                                result = json.dumps({"error": "Memory backend not initialized"})
+
+                            tool_outputs.append(
+                                {
+                                    "type": "function_call_output",
+                                    "call_id": call_id,
+                                    "output": result,
+                                }
+                            )
+
+                        if tool_outputs:
+                            # Make continuation request with tool results
+                            response_id = resp_json.get("id")
+                            continuation_body = {
+                                "model": model,
+                                "input": tool_outputs,
+                            }
+                            if response_id:
+                                continuation_body["previous_response_id"] = response_id
+                            existing_tools = body.get("tools")
+                            if existing_tools:
+                                continuation_body["tools"] = existing_tools
+
+                            cont_response = await self._retry_request(
+                                "POST", url, headers, continuation_body
+                            )
+                            resp_json = cont_response.json()
+                            response = cont_response
+                            logger.info(
+                                f"[{request_id}] Memory: Handled {len(tool_outputs)} "
+                                f"tool call(s) with continuation for user {memory_user_id} (responses)"
+                            )
                     except Exception as e:
                         logger.warning(
                             f"[{request_id}] Memory tool handling failed (responses): {e}"
@@ -1279,6 +1348,116 @@ class OpenAIHandlerMixin:
                 # Not JSON — pass through as-is
                 tokens_saved = 0
 
+            # --- Memory: inject context, tools, and instructions ---
+            memory_user_id: str | None = None
+            if self.memory_handler and body:
+                memory_user_id = ws_headers.get(
+                    "x-headroom-user-id",
+                    os.environ.get("USER", os.environ.get("USERNAME", "default")),
+                )
+                try:
+                    # Unwrap response.create envelope to access the response body
+                    ws_response_body = body.get("response", body)
+
+                    # Debug: log what Codex sends so we can see the full tool list
+                    existing_tool_names = [
+                        t.get("name") or t.get("function", {}).get("name", "?")
+                        for t in (ws_response_body.get("tools") or [])
+                    ]
+                    instr_preview = (ws_response_body.get("instructions") or "")[:200]
+                    logger.info(
+                        f"[{request_id}] WS Memory: Codex tools={existing_tool_names}, "
+                        f"instructions_len={len(ws_response_body.get('instructions') or '')}, "
+                        f"instructions_preview={instr_preview!r}"
+                    )
+
+                    # Inject memory context into instructions
+                    if self.memory_handler.config.inject_context:
+                        ws_input = ws_response_body.get("input", "")
+                        ws_instructions = ws_response_body.get("instructions")
+                        ws_msgs: list[dict[str, Any]] = []
+                        if ws_instructions:
+                            ws_msgs.append({"role": "system", "content": ws_instructions})
+                        if isinstance(ws_input, str) and ws_input:
+                            ws_msgs.append({"role": "user", "content": ws_input})
+                        elif isinstance(ws_input, list):
+                            from headroom.proxy.responses_converter import (
+                                responses_items_to_messages,
+                            )
+
+                            converted_msgs, _ = responses_items_to_messages(ws_input)
+                            ws_msgs.extend(converted_msgs)
+
+                        memory_context = await self.memory_handler.search_and_format_context(
+                            memory_user_id, ws_msgs
+                        )
+                        if memory_context:
+                            existing = ws_response_body.get("instructions") or ""
+                            if existing:
+                                ws_response_body["instructions"] = f"{existing}\n\n{memory_context}"
+                            else:
+                                ws_response_body["instructions"] = memory_context
+                            logger.info(
+                                f"[{request_id}] WS Memory: Injected {len(memory_context)} chars "
+                                f"of context into instructions"
+                            )
+
+                    # Inject memory tools (Responses API format)
+                    if self.memory_handler.config.inject_tools:
+                        ws_tools = ws_response_body.get("tools") or []
+                        ws_tools, mem_injected = self.memory_handler.inject_tools(
+                            ws_tools, "openai"
+                        )
+                        if mem_injected:
+                            converted_tools = []
+                            for t in ws_tools:
+                                if t.get("type") == "function" and "function" in t:
+                                    fn = t["function"]
+                                    converted_tools.append(
+                                        {
+                                            "type": "function",
+                                            "name": fn.get("name"),
+                                            "description": fn.get("description", ""),
+                                            "parameters": fn.get("parameters", {}),
+                                        }
+                                    )
+                                else:
+                                    converted_tools.append(t)
+                            ws_response_body["tools"] = converted_tools
+
+                            # Add memory instruction so the model uses
+                            # memory tools as persistent cross-session knowledge.
+                            mem_instruction = (
+                                "\n\n## Memory\n"
+                                "You have persistent memory via memory_search and "
+                                "memory_save tools. Memory stores knowledge across "
+                                "sessions — user info, project details, org context, "
+                                "decisions, architecture, conventions, anything worth "
+                                "remembering.\n\n"
+                                "- ALWAYS call memory_search BEFORE searching files "
+                                "when the user asks a question that could be answered "
+                                "from prior knowledge.\n"
+                                "- Call memory_save to store important facts, decisions, "
+                                "or context that would be useful in future sessions.\n"
+                                "- Memory is your first source of truth for anything "
+                                "not visible in the current conversation."
+                            )
+                            existing_instr = ws_response_body.get("instructions") or ""
+                            ws_response_body["instructions"] = existing_instr + mem_instruction
+                            logger.info(
+                                f"[{request_id}] WS Memory: Injected memory tools + instruction"
+                            )
+
+                    # Write back into envelope if it was wrapped
+                    if "response" in body and isinstance(body["response"], dict):
+                        body["response"] = ws_response_body
+                    else:
+                        body = ws_response_body
+
+                    first_msg_raw = json.dumps(body)
+                except Exception as e:
+                    logger.warning(f"[{request_id}] WS Memory injection failed: {e}")
+
             # --- Connect to upstream OpenAI WebSocket ---
             logger.info(f"[{request_id}] WS /v1/responses connecting to {upstream_url}")
 
@@ -1303,7 +1482,7 @@ class OpenAIHandlerMixin:
                     # Send (potentially compressed) first message
                     await upstream.send(first_msg_raw)
 
-                    # Bidirectional relay
+                    # Bidirectional relay with memory tool interception
                     async def _client_to_upstream() -> None:
                         try:
                             while True:
@@ -1318,14 +1497,164 @@ class OpenAIHandlerMixin:
                                 await upstream.close()
 
                     async def _upstream_to_client() -> None:
+                        """Relay upstream→client with transparent memory tool handling.
+
+                        Uses a buffer-then-decide approach:
+                        1. Buffer events until first output item arrives
+                        2. If first output is a memory tool → suppress entire response,
+                           execute tools silently, send continuation upstream
+                        3. If first output is non-memory → flush buffer, stream normally
+                        4. Continuation response events are relayed to Codex seamlessly
+
+                        This prevents orphaned response.created events from confusing Codex.
+                        """
+                        from headroom.proxy.memory_handler import MEMORY_TOOL_NAMES
+
+                        memory_enabled = bool(self.memory_handler and memory_user_id)
+
+                        # Per-response state (reset after each response.completed)
+                        event_buffer: list[str] = []
+                        decided = False
+                        suppress_response = False
+                        pending_fcs: list[dict[str, Any]] = []
+                        resp_id: str | None = None
+
+                        def _reset() -> None:
+                            nonlocal decided, suppress_response, resp_id
+                            event_buffer.clear()
+                            decided = False
+                            suppress_response = False
+                            pending_fcs.clear()
+                            resp_id = None
+
                         try:
                             async for msg in upstream:
-                                if isinstance(msg, str):
-                                    await websocket.send_text(msg)
-                                elif isinstance(msg, bytes):
+                                if isinstance(msg, bytes):
                                     await websocket.send_bytes(msg)
-                                else:
-                                    await websocket.send_text(str(msg))
+                                    continue
+                                msg_str = msg if isinstance(msg, str) else str(msg)
+
+                                if not memory_enabled:
+                                    await websocket.send_text(msg_str)
+                                    continue
+
+                                # Parse event
+                                try:
+                                    event = json.loads(msg_str)
+                                except (json.JSONDecodeError, TypeError):
+                                    await websocket.send_text(msg_str)
+                                    continue
+
+                                event_type = event.get("type", "")
+
+                                # --- Phase 1: Buffer until first output item ---
+                                if not decided:
+                                    event_buffer.append(msg_str)
+
+                                    if event_type == "response.output_item.added":
+                                        item = event.get("item", {})
+                                        if (
+                                            item.get("type") == "function_call"
+                                            and item.get("name") in MEMORY_TOOL_NAMES
+                                        ):
+                                            # Memory tool first → suppress entire response
+                                            suppress_response = True
+                                            decided = True
+                                            event_buffer.clear()
+                                            logger.info(
+                                                f"[{request_id}] WS Memory: Detected "
+                                                f"{item.get('name')} — suppressing response"
+                                            )
+                                        else:
+                                            # Non-memory first → flush buffer, pass through
+                                            decided = True
+                                            for buf in event_buffer:
+                                                await websocket.send_text(buf)
+                                            event_buffer.clear()
+
+                                    elif event_type == "response.completed":
+                                        # No output items at all — flush
+                                        decided = True
+                                        for buf in event_buffer:
+                                            await websocket.send_text(buf)
+                                        event_buffer.clear()
+                                        _reset()
+
+                                    continue
+
+                                # --- Phase 2a: Suppress mode (memory response) ---
+                                if suppress_response:
+                                    if event_type == "response.output_item.done":
+                                        item = event.get("item", {})
+                                        if (
+                                            item.get("type") == "function_call"
+                                            and item.get("name") in MEMORY_TOOL_NAMES
+                                        ):
+                                            pending_fcs.append(item)
+
+                                    elif event_type == "response.completed":
+                                        resp = event.get("response", {})
+                                        resp_id = resp.get("id")
+
+                                        if pending_fcs:
+                                            logger.info(
+                                                f"[{request_id}] WS Memory: Executing "
+                                                f"{len(pending_fcs)} tool(s) transparently"
+                                            )
+
+                                            # Execute memory tool calls
+                                            tool_outputs: list[dict[str, Any]] = []
+                                            for fc in pending_fcs:
+                                                call_id = fc.get("call_id", fc.get("id", ""))
+                                                fc_name = fc.get("name", "")
+                                                args_str = fc.get("arguments", "{}")
+                                                try:
+                                                    fc_args = json.loads(args_str)
+                                                except json.JSONDecodeError:
+                                                    fc_args = {}
+
+                                                await self.memory_handler._ensure_initialized()
+                                                if self.memory_handler._backend:
+                                                    result = await self.memory_handler._execute_memory_tool(
+                                                        fc_name, fc_args, memory_user_id, "openai"
+                                                    )
+                                                else:
+                                                    result = json.dumps(
+                                                        {"error": "backend not ready"}
+                                                    )
+
+                                                tool_outputs.append(
+                                                    {
+                                                        "type": "function_call_output",
+                                                        "call_id": call_id,
+                                                        "output": result,
+                                                    }
+                                                )
+                                                logger.info(
+                                                    f"[{request_id}] WS Memory: Executed "
+                                                    f"{fc_name} for user {memory_user_id}"
+                                                )
+
+                                            # Send continuation upstream
+                                            cont: dict[str, Any] = {
+                                                "type": "response.create",
+                                                "response": {"input": tool_outputs},
+                                            }
+                                            if resp_id:
+                                                cont["response"]["previous_response_id"] = resp_id
+                                            await upstream.send(json.dumps(cont))
+                                            logger.info(
+                                                f"[{request_id}] WS Memory: Sent continuation "
+                                                f"with {len(tool_outputs)} result(s)"
+                                            )
+
+                                        _reset()
+                                    # All events suppressed in this mode
+                                    continue
+
+                                # --- Phase 2b: Pass-through mode ---
+                                await websocket.send_text(msg_str)
+
                         except Exception as relay_err:
                             if "WebSocketDisconnect" not in type(relay_err).__name__:
                                 logger.debug(

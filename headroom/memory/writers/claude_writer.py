@@ -64,7 +64,8 @@ class ClaudeCodeMemoryWriter(AgentWriter):
         project_path = self._project_path
         # Claude Code stores per-project memory at:
         # ~/.claude/projects/-<sanitized-path>/memory/MEMORY.md
-        sanitized = str(project_path).replace("/", "-")
+        # Replace both Unix and Windows path separators
+        sanitized = str(project_path).replace("/", "-").replace("\\", "-")
         claude_memory_dir = Path.home() / ".claude" / "projects" / sanitized / "memory"
         return claude_memory_dir / "MEMORY.md"
 

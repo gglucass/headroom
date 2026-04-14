@@ -614,15 +614,18 @@ class StreamingMixin:
                             f"[{request_id}] Memory: Detected tool calls in streaming response"
                         )
 
-                        # Execute memory tool calls silently — response already
-                        # streamed so we cannot make a continuation request.
+                        # Execute memory tool calls — response already streamed
+                        # so results are saved but continuation is not possible
+                        # in SSE streaming mode. The WS and non-streaming paths
+                        # handle continuation properly.
                         tool_results = await self.memory_handler.handle_memory_tool_calls(
                             parsed_response, memory_user_id, provider
                         )
                         if tool_results:
                             logger.info(
-                                f"[{request_id}] Memory: Tool calls executed silently "
-                                "(streaming mode — no continuation)"
+                                f"[{request_id}] Memory: Tool calls executed "
+                                f"({len(tool_results)} results saved, SSE streaming — "
+                                "continuation handled by client)"
                             )
 
                 # CCR Feedback: Record headroom_retrieve tool calls for TOIN learning.

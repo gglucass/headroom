@@ -7,6 +7,7 @@ and proper wiring between components.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from headroom.memory.config import (
@@ -199,12 +200,21 @@ def _create_vector_index(config: MemoryConfig) -> VectorIndex:
 
         from headroom.memory.adapters.hnsw import HNSWVectorIndex
 
+        # Derive persistent save path from the main DB path so the HNSW
+        # index survives across process restarts (critical for cross-agent
+        # interop: memories saved by Codex MCP must be searchable by Claude).
+        hnsw_save_path: str | Path | None = None
+        if config.db_path:
+            hnsw_save_path = config.db_path.parent / f"{config.db_path.stem}_hnsw"
+
         return HNSWVectorIndex(
             dimension=config.vector_dimension,
             ef_construction=config.hnsw_ef_construction,
             m=config.hnsw_m,
             ef_search=config.hnsw_ef_search,
             max_entries=config.hnsw_max_entries,
+            save_path=hnsw_save_path,
+            auto_save=True,
         )
 
     raise ValueError(f"Unknown vector backend: {config.vector_backend}")

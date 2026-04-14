@@ -380,7 +380,14 @@ class MemoryHandler:
                     entities_str = ", ".join(result.related_entities[:3])
                     memory_lines.append(f"   (Related: {entities_str})")
 
-            context = f"""## Relevant Memories for This User
+        except Exception as e:
+            logger.warning(f"Memory: Search failed for user {user_id}: {e}")
+            return None
+
+        if not memory_lines:
+            return None
+
+        context = f"""## Relevant Memories for This User
 
 The following information was previously saved about this user:
 
@@ -388,15 +395,11 @@ The following information was previously saved about this user:
 
 Use this context to provide personalized and contextually relevant responses."""
 
-            logger.info(
-                f"Memory: Injecting {len(filtered_results)} memories "
-                f"({len(context)} chars) for user {user_id}"
-            )
-            return context
-
-        except Exception as e:
-            logger.warning(f"Memory: Search failed for user {user_id}: {e}")
-            return None
+        logger.info(
+            f"Memory: Injecting {len(memory_lines)} memories "
+            f"({len(context)} chars) for user {user_id}"
+        )
+        return context
 
     def _extract_user_query(self, messages: list[dict[str, Any]]) -> str:
         """Extract the user query from the last user message."""
@@ -445,10 +448,25 @@ Use this context to provide personalized and contextually relevant responses."""
             return []
 
         elif provider == "openai":
+            # Chat Completions format: choices[0].message.tool_calls
             choices = response.get("choices", [])
             if choices:
                 message = choices[0].get("message", {})
-                return list(message.get("tool_calls", []) or [])
+                tc_list = list(message.get("tool_calls", []) or [])
+                if tc_list:
+                    return tc_list
+
+            # Responses API format: output[] with type=function_call
+            output = response.get("output", [])
+            if isinstance(output, list):
+                fc_items = [
+                    item
+                    for item in output
+                    if isinstance(item, dict) and item.get("type") == "function_call"
+                ]
+                if fc_items:
+                    return fc_items
+
             return []
 
         return []
@@ -474,13 +492,15 @@ Use this context to provide personalized and contextually relevant responses."""
 
         for tc in tool_calls:
             tool_name = tc.get("name") or tc.get("function", {}).get("name")
-            tool_id = tc.get("id", "")
+            tool_id = tc.get("id") or tc.get("call_id", "")
 
             # Parse input data
             if provider == "anthropic":
                 input_data = tc.get("input", {})
             else:
-                args_str = tc.get("function", {}).get("arguments", "{}")
+                # Chat Completions format: function.arguments
+                # Responses API format: arguments (top-level string)
+                args_str = tc.get("arguments") or tc.get("function", {}).get("arguments") or "{}"
                 try:
                     input_data = json.loads(args_str)
                 except json.JSONDecodeError:
