@@ -155,9 +155,9 @@ OPENAI_BASE_URL=http://localhost:8787/v1 your-app
 Use `token` mode for short/medium sessions where raw compression savings matter most.
 Use `cache` mode for long-running chats where preserving prior-turn bytes improves provider cache reuse.
 
-Works with any language, any tool, any framework. **[Proxy docs](docs/proxy.md)**
+Works with any language, any tool, any framework. **[Proxy docs](docs/content/docs/proxy.mdx)**
 
-Prefer Docker as the runtime provider? See **[Docker-native install](docs/docker-install.md)**. Want Headroom to stay up in the background? See **[Persistent installs](docs/persistent-installs.md)**.
+Prefer Docker as the runtime provider? See **[Installation — Docker](docs/content/docs/installation.mdx)**.
 
 ### Coding agents — one command
 
@@ -189,7 +189,7 @@ summary = ctx.get("research")               # Agent B reads (~80% smaller)
 full = ctx.get("research", full=True)       # Agent B gets original if needed
 ```
 
-Compress what moves between agents — any framework. **[SharedContext Guide](docs/shared-context.md)**
+Compress what moves between agents — any framework. **[SharedContext Guide](docs/content/docs/shared-context.mdx)**
 
 ### MCP Tools (Claude Code, Cursor)
 
@@ -197,7 +197,7 @@ Compress what moves between agents — any framework. **[SharedContext Guide](do
 headroom mcp install && claude
 ```
 
-Gives your AI tool three MCP tools: `headroom_compress`, `headroom_retrieve`, `headroom_stats`. **[MCP Guide](docs/mcp.md)**
+Gives your AI tool three MCP tools: `headroom_compress`, `headroom_retrieve`, `headroom_stats`. **[MCP Guide](docs/content/docs/mcp.mdx)**
 
 ### Drop into your existing stack
 
@@ -219,7 +219,7 @@ Gives your AI tool three MCP tools: `headroom_compress`, `headroom_retrieve`, `h
 | **Codex / Aider** | Wrap | `headroom wrap codex` or `headroom wrap aider` |
 | **Always-on local proxy** | Persistent install | `headroom install apply --preset persistent-service --providers auto` |
 
-**[Full Integration Guide](docs/integration-guide.md)** | **[TypeScript SDK](docs/typescript-sdk.md)**
+**[Full Integration Guide](docs/content/docs/index.mdx)**
 
 ---
 
@@ -292,7 +292,7 @@ python -m headroom.evals suite --tier 1 -o eval_results/
 python -m headroom.evals suite --tier 1 --ci
 ```
 
-Full methodology: [Benchmarks](docs/benchmarks.md) | [Evals Framework](headroom/evals/README.md)
+Full methodology: [Benchmarks](docs/content/docs/benchmarks.mdx) | [Evals Framework](headroom/evals/README.md)
 
 ---
 
@@ -317,7 +317,7 @@ headroom wrap claude --memory    # Claude with persistent memory
 headroom wrap codex --memory     # Codex shares the SAME memory store
 ```
 
-Claude saves a fact, Codex reads it back. All agents sharing one proxy share one memory — project-scoped, user-isolated, with agent provenance tracking and automatic deduplication. No SDK changes needed. **[Memory docs](docs/memory.md)**
+Claude saves a fact, Codex reads it back. All agents sharing one proxy share one memory — project-scoped, user-isolated, with agent provenance tracking and automatic deduplication. No SDK changes needed. **[Memory docs](docs/content/docs/memory.mdx)**
 
 ### Failure Learning
 
@@ -327,7 +327,7 @@ headroom learn --apply                # Write learnings to agent-native files
 headroom learn --agent codex --all    # Analyze all Codex sessions
 ```
 
-Plugin-based: reads conversation history from Claude Code, Codex, or Gemini CLI. Finds failure patterns, correlates with successes, writes corrections to CLAUDE.md / AGENTS.md / GEMINI.md. External plugins via entry points. **[Learn docs](docs/learn.md)**
+Plugin-based: reads conversation history from Claude Code, Codex, or Gemini CLI. Finds failure patterns, correlates with successes, writes corrections to CLAUDE.md / AGENTS.md / GEMINI.md. External plugins via entry points. **[Learn docs](docs/content/docs/failure-learning.mdx)**
 
 <p align="center">
   <img src="headroom_learn.gif" alt="headroom learn demo" width="800">
@@ -405,7 +405,7 @@ Context compression is a new space. Here's how the approaches differ:
   Originals are in the Compressed Store — nothing is thrown away.
 ```
 
-**Overhead**: 15-200ms compression latency (net positive for Sonnet/Opus). Full data: [Latency Benchmarks](docs/LATENCY_BENCHMARKS.md)
+**Overhead**: 15-200ms compression latency (net positive for Sonnet/Opus). Full data: [Benchmarks](docs/content/docs/benchmarks.mdx)
 
 ---
 
@@ -413,16 +413,16 @@ Context compression is a new space. Here's how the approaches differ:
 
 | Integration | Status | Docs |
 |-------------|--------|------|
-| `headroom wrap claude/copilot/codex/aider/cursor` | **Stable** | [Proxy Docs](docs/proxy.md) |
-| `compress()` — one function | **Stable** | [Integration Guide](docs/integration-guide.md) |
-| `SharedContext` — multi-agent | **Stable** | [SharedContext Guide](docs/shared-context.md) |
-| LiteLLM callback | **Stable** | [Integration Guide](docs/integration-guide.md#litellm) |
-| ASGI middleware | **Stable** | [Integration Guide](docs/integration-guide.md#asgi-middleware) |
-| Proxy server | **Stable** | [Proxy Docs](docs/proxy.md) |
-| Agno | **Stable** | [Agno Guide](docs/agno.md) |
-| MCP (Claude Code, Cursor, etc.) | **Stable** | [MCP Guide](docs/mcp.md) |
-| Strands | **Stable** | [Strands Guide](docs/strands.md) |
-| LangChain | **Stable** | [LangChain Guide](docs/langchain.md) |
+| `headroom wrap claude/copilot/codex/aider/cursor` | **Stable** | [Proxy Docs](docs/content/docs/proxy.mdx) |
+| `compress()` — one function | **Stable** | [Integration Guide](docs/content/docs/index.mdx) |
+| `SharedContext` — multi-agent | **Stable** | [SharedContext Guide](docs/content/docs/shared-context.mdx) |
+| LiteLLM callback | **Stable** | [LiteLLM Guide](docs/content/docs/litellm.mdx) |
+| ASGI middleware | **Stable** | [Integration Guide](docs/content/docs/index.mdx) |
+| Proxy server | **Stable** | [Proxy Docs](docs/content/docs/proxy.mdx) |
+| Agno | **Stable** | [Agno Guide](docs/content/docs/agno.mdx) |
+| MCP (Claude Code, Cursor, etc.) | **Stable** | [MCP Guide](docs/content/docs/mcp.mdx) |
+| Strands | **Stable** | [Strands Guide](docs/content/docs/strands.mdx) |
+| LangChain | **Stable** | [LangChain Guide](docs/content/docs/langchain.mdx) |
 | **OpenClaw** | **Stable** | [OpenClaw plugin](#openclaw-plugin) |
 
 ---
@@ -521,23 +521,20 @@ Python 3.10+
 
 | | |
 |---|---|
-| [Integration Guide](docs/integration-guide.md) | LiteLLM, ASGI, compress(), proxy |
-| [Proxy Docs](docs/proxy.md) | Proxy server configuration |
-| [Architecture](docs/ARCHITECTURE.md) | How the pipeline works |
-| [CCR Guide](docs/ccr.md) | Reversible compression |
-| [Benchmarks](docs/benchmarks.md) | Accuracy validation |
-| [Latency Benchmarks](docs/LATENCY_BENCHMARKS.md) | Compression overhead & cost-benefit analysis |
-| [Limitations](docs/LIMITATIONS.md) | When compression helps, when it doesn't |
+| [Integration Guide](docs/content/docs/index.mdx) | LiteLLM, ASGI, compress(), proxy |
+| [Proxy Docs](docs/content/docs/proxy.mdx) | Proxy server configuration |
+| [Architecture](docs/content/docs/architecture.mdx) | How the pipeline works |
+| [CCR Guide](docs/content/docs/ccr.mdx) | Reversible compression |
+| [Benchmarks](docs/content/docs/benchmarks.mdx) | Accuracy validation |
+| [Limitations](docs/content/docs/limitations.mdx) | When compression helps, when it doesn't |
 | [Evals Framework](headroom/evals/README.md) | Prove compression preserves accuracy |
-| [Memory](docs/memory.md) | Cross-agent persistent memory with provenance + dedup |
-| [Agno](docs/agno.md) | Agno agent framework |
-| [MCP](docs/mcp.md) | Context engineering toolkit (compress, retrieve, stats) |
-| [SharedContext](docs/shared-context.md) | Compressed inter-agent context sharing |
-| [Learn](docs/learn.md) | Plugin-based failure learning (Claude, Codex, Gemini, extensible) |
-| [CLI Reference](docs/cli.md) | Complete command surface, help output, and Docker parity matrix |
-| [Docker-Native Install](docs/docker-install.md) | Host wrapper install, compose support, and Docker runtime behavior |
-| [Persistent Installs](docs/persistent-installs.md) | Service/task/docker deployment models and provider scopes |
-| [Configuration](docs/configuration.md) | All options |
+| [Memory](docs/content/docs/memory.mdx) | Cross-agent persistent memory with provenance + dedup |
+| [Agno](docs/content/docs/agno.mdx) | Agno agent framework |
+| [MCP](docs/content/docs/mcp.mdx) | Context engineering toolkit (compress, retrieve, stats) |
+| [SharedContext](docs/content/docs/shared-context.mdx) | Compressed inter-agent context sharing |
+| [Learn](docs/content/docs/failure-learning.mdx) | Plugin-based failure learning (Claude, Codex, Gemini, extensible) |
+| [Installation](docs/content/docs/installation.mdx) | pip, npm, Docker install methods |
+| [Configuration](docs/content/docs/configuration.mdx) | All options |
 
 ---
 
