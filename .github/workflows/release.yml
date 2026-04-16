@@ -81,78 +81,10 @@ jobs:
               f.write(f"level={level}\n")
           PYEOF
 
-      - name: Compute version from canonical + commit height
+      - name: Compute semantic version from canonical + release history
         id: ver
         run: |
-          python - <<'PYEOF'
-          import subprocess, os, re, tomllib
-
-          with open("pyproject.toml", "rb") as f:
-              data = tomllib.load(f)
-          canonical = data["project"]["version"]
-          major, minor, patch = map(int, re.match(r"(\d+)\.(\d+)\.(\d+)", canonical).groups())
-
-          level = os.environ.get("LEVEL", "patch")
-          manual = os.environ.get("MANUAL_VER", "")
-
-          if manual:
-              new_ver = manual
-              bump = "manual"
-              npm_ver = manual
-              canonical_out = ""
-              height_out = "0"
-              previous_tag_out = ""
-          else:
-              # Find last tag matching v{canonical}.*
-              tag_prefix = f"v{canonical}."
-              tag_result = subprocess.run(
-                  ["git", "tag", "-l", f"{tag_prefix}*"],
-                  capture_output=True, text=True, check=False
-              )
-              tags = [t.strip() for t in tag_result.stdout.strip().split("\n") if t.strip()]
-
-              if tags:
-                  # Sort by version number, get highest
-                  def parse_tag(t):
-                      v = t.lstrip("v")
-                      parts = re.match(r"(\d+)\.(\d+)\.(\d+)\.(\d+)", v)
-                      return tuple(int(x) for x in parts.groups()) if parts else (0, 0, 0, 0)
-                  tags.sort(key=parse_tag, reverse=True)
-                  last_tag = tags[0]
-                  prev_height = int(last_tag.rsplit(".", 1)[-1])
-
-                  # Count commits since the last tagged release
-                  count_result = subprocess.run(
-                      ["git", "rev-list", f"{last_tag}..HEAD", "--count"],
-                      capture_output=True, text=True, check=False
-                  )
-                  height = int(count_result.stdout.strip())
-              else:
-                  # No prior tag at this canonical level — height = 0
-                  prev_height = 0
-                  height = 0
-
-              # Determine bump
-              if level == "major":
-                  new_ver = f"{major + 1}.0.0.0"
-                  npm_ver = f"{major + 1}.0.0"
-              elif level == "minor":
-                  new_ver = f"{major}.{minor + 1}.0.0"
-                  npm_ver = f"{major}.{minor + 1}.0"
-              else:  # patch
-                  new_ver = f"{canonical}.{prev_height + 1}"
-                  npm_ver = f"{major}.{minor}.{patch + 1}"
-
-              bump = level
-
-          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
-              f.write(f"version={new_ver}\n")
-              f.write(f"npm_version={npm_ver}\n")
-              f.write(f"canonical={canonical_out if manual else canonical}\n")
-              f.write(f"height={height_out if manual else height}\n")
-              f.write(f"bump={bump}\n")
-              f.write(f"previous_tag={previous_tag_out if manual else (last_tag if tags else '')}\n")
-          PYEOF
+          python -m headroom.release_version
         env:
           LEVEL: ${{ steps.bump.outputs.level }}
           MANUAL_VER: ${{ github.event.inputs.version }}
