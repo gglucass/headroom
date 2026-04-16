@@ -9,8 +9,6 @@ from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-import tomllib
-
 SEMVER_RE = re.compile(r"^(\d+)\.(\d+)\.(\d+)$")
 RELEASE_TAG_RE = re.compile(r"^v(\d+)\.(\d+)\.(\d+)(?:\.(\d+))?$")
 
@@ -125,6 +123,11 @@ def compute_release_version(
 
 def get_canonical_version(root: Path) -> str:
     """Read the canonical project version from pyproject.toml."""
+
+    try:
+        import tomllib
+    except ModuleNotFoundError:  # pragma: no cover - Python 3.10 compatibility
+        import tomli as tomllib
 
     with open(root / "pyproject.toml", "rb") as file:
         data = tomllib.load(file)
