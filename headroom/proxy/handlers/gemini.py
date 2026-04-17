@@ -17,10 +17,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("headroom.proxy")
 
-DEFAULT_GEMINI_API_URL = "https://generativelanguage.googleapis.com"
 DEFAULT_CLOUDCODE_API_URL = "https://cloudcode-pa.googleapis.com"
 ANTIGRAVITY_DAILY_API_URL = "https://daily-cloudcode-pa.sandbox.googleapis.com"
-ANTIGRAVITY_AUTOPUSH_API_URL = "https://autopush-cloudcode-pa.sandbox.googleapis.com"
 
 
 class GeminiHandlerMixin:
@@ -30,21 +28,19 @@ class GeminiHandlerMixin:
         self, body: dict[str, Any], headers: dict[str, str]
     ) -> bool:
         """Detect Pi/OpenClaw antigravity requests routed via Cloud Code Assist."""
-        user_agent = headers.get("user-agent", "")
+        user_agent = headers.get("user-agent", "").lower()
+        body_user_agent = str(body.get("userAgent", "")).lower()
         return (
             body.get("requestType") == "agent"
-            or body.get("userAgent") == "antigravity"
+            or body_user_agent == "antigravity"
             or user_agent.startswith("antigravity/")
         )
 
     def _resolve_cloudcode_base_url(self, is_antigravity: bool) -> str:
         """Resolve upstream base URL for Pi Cloud Code Assist / Antigravity traffic."""
-        configured = self.GEMINI_API_URL.rstrip("/")
-        if configured and configured != DEFAULT_GEMINI_API_URL:
-            return configured
         if is_antigravity:
             return ANTIGRAVITY_DAILY_API_URL
-        return DEFAULT_CLOUDCODE_API_URL
+        return getattr(self, "CLOUDCODE_API_URL", DEFAULT_CLOUDCODE_API_URL).rstrip("/")
 
     def _has_non_text_parts(self, content: dict) -> bool:
         """Check if a Gemini content entry has non-text parts.

@@ -2,6 +2,7 @@ import base64
 import json
 
 import httpx
+import pytest
 from fastapi import WebSocket
 from fastapi.responses import JSONResponse
 from fastapi.testclient import TestClient
@@ -104,7 +105,22 @@ def test_codex_responses_subpath_aliases_delegate_to_passthrough():
     ]
 
 
-def test_codex_responses_subpath_passthrough_derives_chatgpt_routing_from_jwt():
+@pytest.mark.parametrize(
+    ("path", "expected_url"),
+    [
+        (
+            "/v1/codex/responses/compact?trace=jwt",
+            "https://chatgpt.com/backend-api/codex/responses/compact?trace=jwt",
+        ),
+        (
+            "/v1/responses/compact?trace=jwt-old",
+            "https://chatgpt.com/backend-api/codex/responses/compact?trace=jwt-old",
+        ),
+    ],
+)
+def test_codex_responses_subpath_passthrough_derives_chatgpt_routing_from_jwt(
+    path, expected_url
+):
     class FakeAsyncClient:
         def __init__(self) -> None:
             self.calls: list[tuple[str, str, dict[str, str]]] = []
@@ -130,7 +146,7 @@ def test_codex_responses_subpath_passthrough_derives_chatgpt_routing_from_jwt():
         client.app.state.proxy.OPENAI_API_URL = "https://api.openai.test"
 
         response = client.post(
-            "/v1/codex/responses/compact?trace=jwt",
+            path,
             headers={"Authorization": f"Bearer {token}"},
             json={"model": "gpt-5.4"},
         )
@@ -140,6 +156,6 @@ def test_codex_responses_subpath_passthrough_derives_chatgpt_routing_from_jwt():
 
     method, url, headers = fake_http_client.calls[0]
     assert method == "POST"
-    assert url == "https://chatgpt.com/backend-api/codex/responses/compact?trace=jwt"
+    assert url == expected_url
     assert headers["authorization"] == f"Bearer {token}"
     assert headers["ChatGPT-Account-ID"] == "acct-from-jwt"

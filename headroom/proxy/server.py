@@ -203,31 +203,48 @@ class HeadroomProxy(
     ANTHROPIC_API_URL = "https://api.anthropic.com"
     OPENAI_API_URL = "https://api.openai.com"
     GEMINI_API_URL = "https://generativelanguage.googleapis.com"
+    CLOUDCODE_API_URL = "https://cloudcode-pa.googleapis.com"
 
     def __init__(self, config: ProxyConfig):
         self.config = config
         self.config.mode = normalize_proxy_mode(self.config.mode)
 
-        # Override ANTHROPIC_API_URL with config if set
-        # Strip trailing /v1 or /v1/ to avoid double-path (e.g., .../v1/v1/models)
+        # Reset per-instance API targets first so test runs and multiple app instances
+        # do not leak class-level overrides across each other.
+        HeadroomProxy.ANTHROPIC_API_URL = "https://api.anthropic.com"
+        HeadroomProxy.OPENAI_API_URL = "https://api.openai.com"
+        HeadroomProxy.GEMINI_API_URL = "https://generativelanguage.googleapis.com"
+        HeadroomProxy.CLOUDCODE_API_URL = "https://cloudcode-pa.googleapis.com"
+
+        # Override ANTHROPIC_API_URL with config if set.
+        # Strip trailing /v1 or /v1/ to avoid double-path (e.g., .../v1/v1/models).
         if config.anthropic_api_url:
             url = config.anthropic_api_url.rstrip("/")
             if url.endswith("/v1"):
                 url = url[:-3]
             HeadroomProxy.ANTHROPIC_API_URL = url
 
-        # Override OPENAI_API_URL with config if set
-        # Strip trailing /v1 or /v1/ to avoid double-path (e.g., .../v1/v1/models)
+        # Override OPENAI_API_URL with config if set.
+        # Strip trailing /v1 or /v1/ to avoid double-path (e.g., .../v1/v1/models).
         if config.openai_api_url:
             url = config.openai_api_url.rstrip("/")
             if url.endswith("/v1"):
                 url = url[:-3]
             HeadroomProxy.OPENAI_API_URL = url
 
-        # Override GEMINI_API_URL with config if set
+        # Override GEMINI_API_URL with config if set.
         if config.gemini_api_url:
             gurl = config.gemini_api_url.rstrip("/")
+            if gurl.endswith("/v1"):
+                gurl = gurl[:-3]
             HeadroomProxy.GEMINI_API_URL = gurl
+
+        # Override CLOUDCODE_API_URL with config if set.
+        if config.cloudcode_api_url:
+            curl = config.cloudcode_api_url.rstrip("/")
+            if curl.endswith("/v1"):
+                curl = curl[:-3]
+            HeadroomProxy.CLOUDCODE_API_URL = curl
 
         # Initialize providers
         self.anthropic_provider = AnthropicProvider()

@@ -89,3 +89,110 @@ def test_cloudcode_route_uses_default_cloudcode_endpoint(monkeypatch):
         "provider": "gemini",
         "model": "gemini-3.1-pro-high",
     }
+
+
+def test_cloudcode_route_uses_cloudcode_api_override(monkeypatch):
+    async def fake_stream(self, url, _headers, _body, provider, model, *_args, **_kwargs):  # type: ignore[no-untyped-def]
+        return JSONResponse({"url": url, "provider": provider, "model": model})
+
+    monkeypatch.setattr(HeadroomProxy, "_stream_response", fake_stream)
+
+    with TestClient(
+        create_app(
+            ProxyConfig(optimize=False, cloudcode_api_url="https://cloudcode-proxy.test/v1")
+        )
+    ) as client:
+        response = client.post(
+            "/v1/v1internal:streamGenerateContent",
+            params={"alt": "sse"},
+            json=CLOUDCODE_BODY,
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "url": "https://cloudcode-proxy.test/v1internal:streamGenerateContent?alt=sse",
+        "provider": "gemini",
+        "model": "gemini-3.1-pro-high",
+    }
+
+
+def test_antigravity_header_detection_is_case_insensitive(monkeypatch):
+    async def fake_stream(self, url, _headers, _body, provider, model, *_args, **_kwargs):  # type: ignore[no-untyped-def]
+        return JSONResponse({"url": url, "provider": provider, "model": model})
+
+    monkeypatch.setattr(HeadroomProxy, "_stream_response", fake_stream)
+
+    body = {
+        **CLOUDCODE_BODY,
+        "model": "claude-opus-4-6-thinking",
+    }
+
+    with TestClient(create_app(ProxyConfig(optimize=False))) as client:
+        response = client.post(
+            "/v1internal:streamGenerateContent",
+            params={"alt": "sse"},
+            headers={"User-Agent": "Antigravity/1.2.3 Darwin/arm64"},
+            json=body,
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "url": "https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:streamGenerateContent?alt=sse",
+        "provider": "gemini",
+        "model": "claude-opus-4-6-thinking",
+    }
+
+
+def test_antigravity_route_does_not_cross_route_to_cloudcode_override(monkeypatch):
+    async def fake_stream(self, url, _headers, _body, provider, model, *_args, **_kwargs):  # type: ignore[no-untyped-def]
+        return JSONResponse({"url": url, "provider": provider, "model": model})
+
+    monkeypatch.setattr(HeadroomProxy, "_stream_response", fake_stream)
+
+    with TestClient(
+        create_app(
+            ProxyConfig(optimize=False, cloudcode_api_url="https://cloudcode-proxy.test")
+        )
+    ) as client:
+        response = client.post(
+            "/v1internal:streamGenerateContent",
+            params={"alt": "sse"},
+            json=ANTIGRAVITY_BODY,
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "url": "https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:streamGenerateContent?alt=sse",
+        "provider": "gemini",
+        "model": "claude-sonnet-4-6",
+    }
+
+
+def test_cloudcode_override_does_not_leak_between_app_instances(monkeypatch):
+    async def fake_stream(self, url, _headers, _body, provider, model, *_args, **_kwargs):  # type: ignore[no-untyped-def]
+        return JSONResponse({"url": url, "provider": provider, "model": model})
+
+    monkeypatch.setattr(HeadroomProxy, "_stream_response", fake_stream)
+
+    with TestClient(
+        create_app(
+            ProxyConfig(optimize=False, cloudcode_api_url="https://cloudcode-proxy.test")
+        )
+    ) as client:
+        first = client.post(
+            "/v1internal:streamGenerateContent",
+            params={"alt": "sse"},
+            json=CLOUDCODE_BODY,
+        )
+
+    with TestClient(create_app(ProxyConfig(optimize=False))) as client:
+        second = client.post(
+            "/v1internal:streamGenerateContent",
+            params={"alt": "sse"},
+            json=CLOUDCODE_BODY,
+        )
+
+    assert first.status_code == 200
+    assert first.json()["url"] == "https://cloudcode-proxy.test/v1internal:streamGenerateContent?alt=sse"
+    assert second.status_code == 200
+    assert second.json()["url"] == "https://cloudcode-pa.googleapis.com/v1internal:streamGenerateContent?alt=sse"
