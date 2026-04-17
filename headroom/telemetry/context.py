@@ -20,9 +20,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
-_KNOWN_WRAP_AGENTS = frozenset(
-    {"claude", "copilot", "codex", "aider", "cursor", "openclaw"}
-)
+_KNOWN_WRAP_AGENTS = frozenset({"claude", "copilot", "codex", "aider", "cursor", "openclaw"})
 
 
 def _slug_from_agent_type(agent_type: str) -> str:
@@ -99,7 +97,7 @@ def detect_stack(stats: dict[str, Any] | None = None) -> str:
                 if total > 0:
                     dominant, count = max(by_stack.items(), key=lambda kv: kv[1])
                     if count / total >= 0.8:
-                        return dominant
+                        return str(dominant)
                     return "mixed"
 
         return "proxy"

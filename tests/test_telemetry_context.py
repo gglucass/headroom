@@ -24,31 +24,23 @@ class TestDetectInstallMode:
         assert detect_install_mode(8787) == "wrapped"
 
     def test_on_demand_when_no_env_and_no_manifest(self, monkeypatch):
-        monkeypatch.setattr(
-            "headroom.install.state.list_manifests", lambda: []
-        )
+        monkeypatch.setattr("headroom.install.state.list_manifests", lambda: [])
         assert detect_install_mode(8787) == "on_demand"
 
     def test_persistent_when_manifest_matches_port(self, monkeypatch):
         manifest = SimpleNamespace(port=8787, profile="default")
-        monkeypatch.setattr(
-            "headroom.install.state.list_manifests", lambda: [manifest]
-        )
+        monkeypatch.setattr("headroom.install.state.list_manifests", lambda: [manifest])
         assert detect_install_mode(8787) == "persistent"
 
     def test_on_demand_when_manifest_port_mismatches(self, monkeypatch):
         manifest = SimpleNamespace(port=9000, profile="other")
-        monkeypatch.setattr(
-            "headroom.install.state.list_manifests", lambda: [manifest]
-        )
+        monkeypatch.setattr("headroom.install.state.list_manifests", lambda: [manifest])
         assert detect_install_mode(8787) == "on_demand"
 
     def test_wrapped_takes_precedence_over_manifest(self, monkeypatch):
         monkeypatch.setenv("HEADROOM_AGENT_TYPE", "codex")
         manifest = SimpleNamespace(port=8787, profile="default")
-        monkeypatch.setattr(
-            "headroom.install.state.list_manifests", lambda: [manifest]
-        )
+        monkeypatch.setattr("headroom.install.state.list_manifests", lambda: [manifest])
         assert detect_install_mode(8787) == "wrapped"
 
     def test_manifest_crash_falls_back_to_on_demand(self, monkeypatch):
