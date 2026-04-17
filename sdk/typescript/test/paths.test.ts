@@ -293,6 +293,85 @@ describe("derived-only resources", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Derived-only helpers must follow HEADROOM_WORKSPACE_DIR end-to-end
+// ---------------------------------------------------------------------------
+
+describe("derived-only helpers follow workspace env", () => {
+  let snap: Record<string, string | undefined>;
+  beforeEach(() => {
+    snap = saveEnv();
+    clearEnv();
+    process.env[HEADROOM_WORKSPACE_DIR_ENV] = "/tmp/alt_ws";
+  });
+  afterEach(() => restoreEnv(snap));
+
+  it("memoryDbPath", () => {
+    expect(memoryDbPath()).toBe(path.join("/tmp/alt_ws", "memory.db"));
+  });
+  it("nativeMemoryDir", () => {
+    expect(nativeMemoryDir()).toBe(path.join("/tmp/alt_ws", "memories"));
+  });
+  it("licenseCachePath", () => {
+    expect(licenseCachePath()).toBe(
+      path.join("/tmp/alt_ws", "license_cache.json"),
+    );
+  });
+  it("sessionStatsPath", () => {
+    expect(sessionStatsPath()).toBe(
+      path.join("/tmp/alt_ws", "session_stats.jsonl"),
+    );
+  });
+  it("syncStatePath", () => {
+    expect(syncStatePath()).toBe(
+      path.join("/tmp/alt_ws", "sync_state.json"),
+    );
+  });
+  it("bridgeStatePath", () => {
+    expect(bridgeStatePath()).toBe(
+      path.join("/tmp/alt_ws", "bridge_state.json"),
+    );
+  });
+  it("logDir", () => {
+    expect(logDir()).toBe(path.join("/tmp/alt_ws", "logs"));
+  });
+  it("proxyLogPath", () => {
+    expect(proxyLogPath()).toBe(
+      path.join("/tmp/alt_ws", "logs", "proxy.log"),
+    );
+  });
+  it("debug400Dir", () => {
+    expect(debug400Dir()).toBe(
+      path.join("/tmp/alt_ws", "logs", "debug_400"),
+    );
+  });
+  it("binDir", () => {
+    expect(binDir()).toBe(path.join("/tmp/alt_ws", "bin"));
+  });
+  it("rtkPath", () => {
+    const expected = process.platform === "win32" ? "rtk.exe" : "rtk";
+    expect(rtkPath()).toBe(path.join("/tmp/alt_ws", "bin", expected));
+  });
+  it("deployRoot", () => {
+    expect(deployRoot()).toBe(path.join("/tmp/alt_ws", "deploy"));
+  });
+  it("beaconLockPath", () => {
+    expect(beaconLockPath(9999)).toBe(
+      path.join("/tmp/alt_ws", ".beacon_lock_9999"),
+    );
+  });
+  it("pluginConfigDir follows derived config (workspace/config)", () => {
+    expect(pluginConfigDir("alpha")).toBe(
+      path.join("/tmp/alt_ws", "config", "plugins", "alpha"),
+    );
+  });
+  it("pluginWorkspaceDir", () => {
+    expect(pluginWorkspaceDir("alpha")).toBe(
+      path.join("/tmp/alt_ws", "plugins", "alpha"),
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Plugin namespace isolation
 // ---------------------------------------------------------------------------
 
