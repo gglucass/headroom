@@ -70,6 +70,8 @@ class PrometheusMetrics:
         self.requests_total = 0
         self.requests_by_provider: dict[str, int] = defaultdict(int)
         self.requests_by_model: dict[str, int] = defaultdict(int)
+        # Populated via X-Headroom-Stack header (TS SDK adapters, etc.)
+        self.requests_by_stack: dict[str, int] = defaultdict(int)
         self.requests_cached = 0
         self.requests_rate_limited = 0
         self.requests_failed = 0
@@ -191,6 +193,21 @@ class PrometheusMetrics:
                 pass
 
         return total_input_tokens, total_input_cost_usd
+
+    def record_stack(self, stack: str | None) -> None:
+        """Increment the per-stack request counter.
+
+        ``stack`` is the ``X-Headroom-Stack`` header value (e.g.
+        ``adapter_ts_openai``). Called once per inbound request from the
+        proxy's stack middleware; a no-op when the header is absent.
+        """
+
+        if not stack:
+            return
+        slug = stack.strip().lower()
+        if not slug or len(slug) > 64:
+            return
+        self.requests_by_stack[slug] += 1
 
     async def record_request(
         self,
