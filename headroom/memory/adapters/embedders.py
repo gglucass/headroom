@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from headroom.models.config import ML_MODEL_DEFAULTS
+from headroom.onnx_runtime import create_cpu_session_options
 
 if TYPE_CHECKING:
     from sentence_transformers import SentenceTransformer
@@ -311,10 +312,14 @@ class OnnxLocalEmbedder:
         model_path = hf_hub_download(self.ONNX_REPO, "model.onnx")
         tok_path = hf_hub_download(self.ONNX_REPO, "tokenizer.json")
 
-        # Set thread count to avoid pthread_setaffinity_np errors in Docker containers
-        sess_options = ort.SessionOptions()
-        sess_options.intra_op_num_threads = 1
-        sess_options.inter_op_num_threads = 1
+        # Keep a small thread pool for Docker compatibility and disable ORT's
+        # CPU memory arena/pattern caches so long-running proxy workers do not
+        # retain large anonymous heaps after embedding bursts.
+        sess_options = create_cpu_session_options(
+            ort,
+            intra_op_num_threads=1,
+            inter_op_num_threads=1,
+        )
         self._session = ort.InferenceSession(
             model_path, sess_options, providers=["CPUExecutionProvider"]
         )

@@ -20,6 +20,7 @@ from typing import Any
 import numpy as np
 
 from headroom.image.trained_router import ImageSignals, RouteDecision, Technique
+from headroom.onnx_runtime import create_cpu_session_options
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +64,9 @@ class OnnxTechniqueRouter:
 
         model_path = hf_hub_download(_TECHNIQUE_ROUTER_REPO, "model_quantized.onnx")
         self._classifier_session = ort.InferenceSession(
-            model_path, providers=["CPUExecutionProvider"]
+            model_path,
+            create_cpu_session_options(ort),
+            providers=["CPUExecutionProvider"],
         )
 
         tokenizer_path = hf_hub_download(_TECHNIQUE_ROUTER_REPO, "tokenizer.json")
@@ -95,7 +98,11 @@ class OnnxTechniqueRouter:
         logger.info("Loading SigLIP ONNX INT8 image encoder...")
 
         model_path = hf_hub_download(_SIGLIP_ENCODER_REPO, "image_encoder_int8.onnx")
-        self._siglip_session = ort.InferenceSession(model_path, providers=["CPUExecutionProvider"])
+        self._siglip_session = ort.InferenceSession(
+            model_path,
+            create_cpu_session_options(ort),
+            providers=["CPUExecutionProvider"],
+        )
 
         embeddings_path = hf_hub_download(_SIGLIP_ENCODER_REPO, "text_embeddings.npz")
         loaded = np.load(embeddings_path)

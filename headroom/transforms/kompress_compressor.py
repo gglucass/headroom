@@ -14,12 +14,14 @@ Usage:
 
 from __future__ import annotations
 
+import gc
 import logging
 import threading
 from dataclasses import dataclass
 from typing import Any
 
 from ..config import TransformResult
+from ..onnx_runtime import create_cpu_session_options, trim_process_heap
 from ..tokenizer import Tokenizer
 from .base import Transform
 
@@ -174,7 +176,11 @@ def _load_kompress_onnx(model_id: str) -> tuple[Any, Any, str]:
         logger.info("Downloading Kompress ONNX model from %s ...", model_id)
         onnx_path = hf_hub_download(model_id, "onnx/kompress-int8.onnx")
 
-        session = ort.InferenceSession(onnx_path)
+        session = ort.InferenceSession(
+            onnx_path,
+            create_cpu_session_options(ort),
+            providers=["CPUExecutionProvider"],
+        )
         model = _OnnxModel(session)
         tokenizer = AutoTokenizer.from_pretrained("answerdotai/ModernBERT-base")
 
@@ -264,14 +270,17 @@ def unload_kompress_model(model_id: str | None = None) -> bool:
         else:
             return False
 
-        try:
-            import torch
+    try:
+        import torch
 
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-        except ImportError:
-            pass
-        return True
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+    except ImportError:
+        pass
+
+    gc.collect()
+    trim_process_heap()
+    return True
 
 
 # ── Compressor ────────────────────────────────────────────────────────
