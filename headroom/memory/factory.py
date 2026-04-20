@@ -7,8 +7,9 @@ and proper wiring between components.
 
 from __future__ import annotations
 
+from importlib.metadata import entry_points
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from headroom.memory.config import (
     EmbedderBackend,
@@ -20,6 +21,37 @@ from headroom.memory.config import (
 
 if TYPE_CHECKING:
     from headroom.memory.ports import Embedder, MemoryCache, MemoryStore, TextIndex, VectorIndex
+
+
+# Extension groups for memory backends registered via setuptools entry points.
+_MEMORY_STORE_GROUP = "headroom.memory_store"
+_MEMORY_VECTOR_GROUP = "headroom.memory_vector"
+_MEMORY_TEXT_GROUP = "headroom.memory_text"
+
+
+def _load_external_backend(
+    group: str,
+    name: str | None,
+    field_name: str,
+    config: MemoryConfig,
+) -> Any:
+    """Load a memory backend registered via setuptools entry points.
+
+    Mirrors the pattern used by
+    `headroom.cache.compression_store._create_default_ccr_backend`.
+    """
+    if not name:
+        raise ValueError(
+            f"{field_name} is required when backend is EXTERNAL; "
+            f"set it to the entry-point name registered under '{group}'."
+        )
+    ep = next((e for e in entry_points(group=group) if e.name == name), None)
+    if ep is None:
+        raise ValueError(
+            f"No entry point registered under '{group}' with name '{name}'. "
+            f"Install the package that provides it."
+        )
+    return ep.load()(config)
 
 
 async def create_memory_system(
@@ -89,6 +121,14 @@ def _create_store(config: MemoryConfig) -> MemoryStore:
 
         return SQLiteMemoryStore(config.db_path)
 
+    if config.store_backend == StoreBackend.EXTERNAL:
+        return _load_external_backend(  # type: ignore[no-any-return]
+            _MEMORY_STORE_GROUP,
+            config.store_backend_name,
+            "store_backend_name",
+            config,
+        )
+
     raise ValueError(f"Unknown store backend: {config.store_backend}")
 
 
@@ -148,6 +188,14 @@ def _create_vector_index(config: MemoryConfig) -> VectorIndex:
         ValueError: If the vector backend is not supported or unavailable.
     """
     backend = config.vector_backend
+
+    if backend == VectorBackend.EXTERNAL:
+        return _load_external_backend(  # type: ignore[no-any-return]
+            _MEMORY_VECTOR_GROUP,
+            config.vector_backend_name,
+            "vector_backend_name",
+            config,
+        )
 
     # AUTO: prefer SQLITE_VEC → HNSW → fail with helpful message
     if backend == VectorBackend.AUTO:
@@ -237,6 +285,14 @@ def _create_text_index(config: MemoryConfig) -> TextIndex:
 
         # FTS5TextIndex has a compatible interface but different method signatures
         return FTS5TextIndex(db_path=config.db_path)  # type: ignore[return-value]
+
+    if config.text_backend == TextBackend.EXTERNAL:
+        return _load_external_backend(  # type: ignore[no-any-return]
+            _MEMORY_TEXT_GROUP,
+            config.text_backend_name,
+            "text_backend_name",
+            config,
+        )
 
     raise ValueError(f"Unknown text backend: {config.text_backend}")
 

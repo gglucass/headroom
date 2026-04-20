@@ -22,7 +22,7 @@ class StoreBackend(Enum):
     """Supported memory store backends."""
 
     SQLITE = "sqlite"
-    # Future: POSTGRES = "postgres", DYNAMODB = "dynamodb"
+    EXTERNAL = "external"  # Loaded from entry_points(group="headroom.memory_store")
 
 
 class VectorBackend(Enum):
@@ -31,13 +31,14 @@ class VectorBackend(Enum):
     AUTO = "auto"  # Auto-select: SQLITE_VEC if available, else HNSW
     SQLITE_VEC = "sqlite_vec"  # SQLite-based, bounded memory, recommended
     HNSW = "hnsw"  # hnswlib-based, unbounded unless max_entries set
+    EXTERNAL = "external"  # Loaded from entry_points(group="headroom.memory_vector")
 
 
 class TextBackend(Enum):
     """Supported text index backends."""
 
     FTS5 = "fts5"
-    # Future: ELASTICSEARCH = "elasticsearch"
+    EXTERNAL = "external"  # Loaded from entry_points(group="headroom.memory_text")
 
 
 class EmbedderBackend(Enum):
@@ -96,10 +97,12 @@ class MemoryConfig:
 
     # Storage
     store_backend: StoreBackend = StoreBackend.SQLITE
+    store_backend_name: str | None = None  # Required when store_backend == EXTERNAL
     db_path: Path = field(default_factory=lambda: Path("headroom_memory.db"))
 
     # Vector index
     vector_backend: VectorBackend = VectorBackend.AUTO  # Auto-select best available
+    vector_backend_name: str | None = None  # Required when vector_backend == EXTERNAL
     vector_dimension: int = 384
     vector_db_path: Path | None = (
         None  # For SQLite-based vector index (derived from db_path if None)
@@ -112,6 +115,7 @@ class MemoryConfig:
 
     # Text index
     text_backend: TextBackend = TextBackend.FTS5
+    text_backend_name: str | None = None  # Required when text_backend == EXTERNAL
 
     # Embedder
     embedder_backend: EmbedderBackend = EmbedderBackend.LOCAL
