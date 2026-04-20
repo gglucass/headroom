@@ -98,9 +98,7 @@ def test_cloudcode_route_uses_cloudcode_api_override(monkeypatch):
     monkeypatch.setattr(HeadroomProxy, "_stream_response", fake_stream)
 
     with TestClient(
-        create_app(
-            ProxyConfig(optimize=False, cloudcode_api_url="https://cloudcode-proxy.test/v1")
-        )
+        create_app(ProxyConfig(optimize=False, cloudcode_api_url="https://cloudcode-proxy.test/v1"))
     ) as client:
         response = client.post(
             "/v1/v1internal:streamGenerateContent",
@@ -150,9 +148,7 @@ def test_antigravity_route_does_not_cross_route_to_cloudcode_override(monkeypatc
     monkeypatch.setattr(HeadroomProxy, "_stream_response", fake_stream)
 
     with TestClient(
-        create_app(
-            ProxyConfig(optimize=False, cloudcode_api_url="https://cloudcode-proxy.test")
-        )
+        create_app(ProxyConfig(optimize=False, cloudcode_api_url="https://cloudcode-proxy.test"))
     ) as client:
         response = client.post(
             "/v1internal:streamGenerateContent",
@@ -175,9 +171,7 @@ def test_cloudcode_override_does_not_leak_between_app_instances(monkeypatch):
     monkeypatch.setattr(HeadroomProxy, "_stream_response", fake_stream)
 
     with TestClient(
-        create_app(
-            ProxyConfig(optimize=False, cloudcode_api_url="https://cloudcode-proxy.test")
-        )
+        create_app(ProxyConfig(optimize=False, cloudcode_api_url="https://cloudcode-proxy.test"))
     ) as client:
         first = client.post(
             "/v1internal:streamGenerateContent",
@@ -193,6 +187,12 @@ def test_cloudcode_override_does_not_leak_between_app_instances(monkeypatch):
         )
 
     assert first.status_code == 200
-    assert first.json()["url"] == "https://cloudcode-proxy.test/v1internal:streamGenerateContent?alt=sse"
+    assert (
+        first.json()["url"]
+        == "https://cloudcode-proxy.test/v1internal:streamGenerateContent?alt=sse"
+    )
     assert second.status_code == 200
-    assert second.json()["url"] == "https://cloudcode-pa.googleapis.com/v1internal:streamGenerateContent?alt=sse"
+    assert (
+        second.json()["url"]
+        == "https://cloudcode-pa.googleapis.com/v1internal:streamGenerateContent?alt=sse"
+    )

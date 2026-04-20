@@ -220,9 +220,7 @@ class TestStreamingRatelimitHeaderForwarding:
                 "content-length": "42",
             }
         )
-        mock_response.aread = AsyncMock(
-            return_value=b'{"error":{"message":"capacity exhausted"}}'
-        )
+        mock_response.aread = AsyncMock(return_value=b'{"error":{"message":"capacity exhausted"}}')
         mock_response.aclose = AsyncMock()
 
         mock_request = MagicMock()

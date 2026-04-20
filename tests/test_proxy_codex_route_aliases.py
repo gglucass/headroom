@@ -118,9 +118,7 @@ def test_codex_responses_subpath_aliases_delegate_to_passthrough():
         ),
     ],
 )
-def test_codex_responses_subpath_passthrough_derives_chatgpt_routing_from_jwt(
-    path, expected_url
-):
+def test_codex_responses_subpath_passthrough_derives_chatgpt_routing_from_jwt(path, expected_url):
     class FakeAsyncClient:
         def __init__(self) -> None:
             self.calls: list[tuple[str, str, dict[str, str]]] = []
