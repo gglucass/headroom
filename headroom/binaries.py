@@ -18,8 +18,10 @@ Env vars:
 from __future__ import annotations
 
 import functools
+import glob
 import hashlib
 import json
+import logging
 import os
 import platform
 import shutil
@@ -28,11 +30,14 @@ import sys
 import tarfile
 import tempfile
 import urllib.error
+import urllib.parse
 import urllib.request
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "BinaryError",
@@ -99,7 +104,12 @@ def _machine_to_arch(machine: str) -> str:
 
 
 def _is_musl() -> bool:
-    # Best-effort musl detection on Linux. Never raises.
+    """Best-effort musl detection on Linux. Never raises.
+
+    First: ask `ldd --version` (returns 'musl' on Alpine/Void).
+    Fallback: check for the musl dynamic loader at /lib/ld-musl-*.so.1,
+    which is present on Alpine even when `ldd` is absent.
+    """
     try:
         out = subprocess.run(
             ["ldd", "--version"],
@@ -108,9 +118,14 @@ def _is_musl() -> bool:
             timeout=2,
             check=False,
         )
-        return "musl" in (out.stdout + out.stderr).lower()
+        if "musl" in (out.stdout + out.stderr).lower():
+            return True
     except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
-        return False
+        pass
+    # Fallback: musl ships a distinctive dynamic loader.
+    if glob.glob("/lib/ld-musl-*.so.1") or glob.glob("/lib64/ld-musl-*.so.1"):
+        return True
+    return False
 
 
 @functools.lru_cache(maxsize=1)
@@ -256,8 +271,10 @@ def _sha256_file(path: Path) -> str:
 
 def _verify_sha256(path: Path, expected: str | None) -> None:
     if not expected:
-        # Upstream release not SHA-pinned in registry. We trusted HTTPS + the
-        # GitHub CDN for the download; log nothing here — `doctor` surfaces.
+        # Upstream release not SHA-pinned in registry. HTTPS + the GitHub CDN
+        # is the only integrity check. Log at INFO so verbose runs can see
+        # this state; `doctor` surfaces the same fact via `sha_pinned=False`.
+        logger.info("binary %s downloaded without sha256 pin (HTTPS trust only)", path.name)
         return
     got = _sha256_file(path)
     if got.lower() != expected.lower():
@@ -279,8 +296,8 @@ def _extract(archive: Path, member: str, dest: Path) -> None:
         elif name.endswith(".zip"):
             with zipfile.ZipFile(archive) as zf:
                 _extract_member_from_zip(zf, member, dest)
-        elif name.endswith(".gz") and "." not in name[:-3]:
-            # bare .gz of a single binary
+        elif name.endswith(".gz") and not (name.endswith(".tar.gz") or name.endswith(".tgz")):
+            # bare .gz of a single binary (e.g. `scc-linux-x86_64.gz`)
             import gzip
 
             with gzip.open(archive, "rb") as gz, dest.open("wb") as out:
@@ -411,19 +428,25 @@ def resolve(tool: str) -> Path:
 
     with tempfile.TemporaryDirectory(prefix="headroom-fetch-") as tmp:
         tmp_dir = Path(tmp)
-        download_path = tmp_dir / Path(url).name
+        # Strip query params so mirror URLs like `.../difft.tar.gz?token=...`
+        # don't produce filenames that break archive-type detection.
+        url_path = urllib.parse.urlparse(url).path
+        download_path = tmp_dir / (Path(url_path).name or "download")
         _download(url, download_path)
         _verify_sha256(download_path, sha256)
         staging = tmp_dir / "out"
         _extract(download_path, member, staging)
         binary_path.parent.mkdir(parents=True, exist_ok=True)
-        # Atomic-ish move: write to sibling then rename.
-        tmp_final = binary_path.with_suffix(binary_path.suffix + ".partial")
+        # Atomic move with a PID-scoped partial name so two concurrent
+        # `headroom proxy` starts don't race on the same .partial path.
+        tmp_final = binary_path.with_name(f"{binary_path.name}.{os.getpid()}.partial")
         shutil.move(str(staging), tmp_final)
         try:
             tmp_final.chmod(0o755)
-        except OSError:
-            pass  # Windows or restricted FS — .exe is already executable
+        except OSError as e:
+            if not sys.platform.startswith("win"):
+                logger.warning("chmod +x failed for %s: %s", tmp_final, e)
+            # On Windows the .exe is already executable; elsewhere we logged.
         os.replace(tmp_final, binary_path)
     return binary_path
 
@@ -480,12 +503,13 @@ def status() -> list[dict[str, Any]]:
             out.append(row)
             continue
         try:
-            _asset_for_platform(name, plat)
+            asset = _asset_for_platform(name, plat)
         except PlatformNotSupported as e:
             row["state"] = "unsupported-platform"
             row["detail"] = str(e)
             out.append(row)
             continue
+        row["sha_pinned"] = bool(asset.get("sha256"))
         cached = _cached_path(name, entry["version"], plat)
         if cached.exists():
             row["path"] = str(cached)

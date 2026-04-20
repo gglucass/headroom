@@ -18,6 +18,7 @@ from .base import (
     ToolResultInterceptorTransform,
     TransformSpan,
     apply_to_messages,
+    interceptor_failure_counts,
     register,
 )
 
@@ -28,5 +29,6 @@ __all__ = [
     "ToolResultInterceptorTransform",
     "TransformSpan",
     "apply_to_messages",
+    "interceptor_failure_counts",
     "register",
 ]

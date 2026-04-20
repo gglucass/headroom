@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import logging
+import threading
 from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable
 
@@ -16,6 +18,30 @@ from headroom.tokenizer import Tokenizer
 from headroom.transforms.base import Transform
 
 logger = logging.getLogger(__name__)
+
+# Interceptor failure counters exposed via `interceptor_failure_counts()`.
+# Incremented whenever `matches()`, `transform()`, or `progressive_disclosure_key()`
+# raises an exception. Dashboards / stats endpoints can surface these to
+# distinguish "nothing eligible to intercept" from "everything is crashing."
+_FAILURES: dict[str, int] = {}
+_FAILURES_LOCK = threading.Lock()
+
+
+def _record_failure(interceptor_name: str) -> None:
+    with _FAILURES_LOCK:
+        _FAILURES[interceptor_name] = _FAILURES.get(interceptor_name, 0) + 1
+
+
+def interceptor_failure_counts() -> dict[str, int]:
+    """Return a snapshot of interceptor failure counters."""
+    with _FAILURES_LOCK:
+        return dict(_FAILURES)
+
+
+def reset_interceptor_failure_counts() -> None:
+    """Reset failure counters (used by tests)."""
+    with _FAILURES_LOCK:
+        _FAILURES.clear()
 
 
 @runtime_checkable
@@ -76,7 +102,7 @@ class TransformSpan:
         return max(self.tokens_before - self.tokens_after, 0)
 
 
-@dataclass
+@dataclass(frozen=True)
 class InterceptionResult:
     messages: list[dict[str, Any]]
     spans: list[TransformSpan]
@@ -93,14 +119,15 @@ def register(interceptor: ToolResultInterceptor) -> None:
     INTERCEPTORS.append(interceptor)
 
 
-def _find_tool_use(
+def _build_tool_use_index(
     messages: list[dict[str, Any]],
-    tool_use_id: str,
-) -> tuple[str | None, dict[str, Any]]:
-    """Walk prior messages to find the tool_use block that produced a given id.
+) -> dict[str, tuple[str | None, dict[str, Any]]]:
+    """Scan once and build a dict of {tool_use_id: (tool_name, tool_input)}.
 
-    Returns (tool_name, tool_input) or (None, {}) if not found.
+    O(total_blocks) to build, O(1) to look up — used instead of a per-message
+    linear scan so `apply_to_messages()` stays linear in message count.
     """
+    index: dict[str, tuple[str | None, dict[str, Any]]] = {}
     for msg in messages:
         content = msg.get("content")
         if isinstance(content, list):
@@ -108,30 +135,31 @@ def _find_tool_use(
                 if not isinstance(block, dict):
                     continue
                 # Anthropic: {"type": "tool_use", "id": ..., "name": ..., "input": {...}}
-                if block.get("type") == "tool_use" and block.get("id") == tool_use_id:
-                    return (
-                        block.get("name"),
-                        block.get("input") or {},
-                    )
+                if block.get("type") == "tool_use":
+                    bid = block.get("id")
+                    if isinstance(bid, str):
+                        index[bid] = (block.get("name"), block.get("input") or {})
         # OpenAI: assistant message with `tool_calls` list
         tool_calls = msg.get("tool_calls")
         if isinstance(tool_calls, list):
             for call in tool_calls:
-                if isinstance(call, dict) and call.get("id") == tool_use_id:
-                    fn = call.get("function") or {}
-                    # arguments is a JSON string in OpenAI; decode best-effort
-                    import json as _json
-
-                    args: dict[str, Any] = {}
-                    if isinstance(fn.get("arguments"), str):
-                        try:
-                            args = _json.loads(fn["arguments"])
-                        except Exception:  # noqa: BLE001
-                            args = {}
-                    elif isinstance(fn.get("arguments"), dict):
-                        args = fn["arguments"]
-                    return fn.get("name"), args
-    return None, {}
+                if not isinstance(call, dict):
+                    continue
+                cid = call.get("id")
+                if not isinstance(cid, str):
+                    continue
+                fn = call.get("function") or {}
+                args: dict[str, Any] = {}
+                raw_args = fn.get("arguments")
+                if isinstance(raw_args, str):
+                    try:
+                        args = json.loads(raw_args)
+                    except json.JSONDecodeError:
+                        args = {}
+                elif isinstance(raw_args, dict):
+                    args = raw_args
+                index[cid] = (fn.get("name"), args)
+    return index
 
 
 def _tool_use_id_for_message(msg: dict[str, Any]) -> str | None:
@@ -171,6 +199,9 @@ def apply_to_messages(
     # file from being outlined again — the model evidently came back for
     # more, so give it the raw content.
     fired: dict[str, set[str]] = {}
+    # Build O(1) tool_use lookup index once per request — prior implementation
+    # was O(n²) on long conversations.
+    tool_use_index = _build_tool_use_index(messages)
 
     for msg in messages:
         if not _is_tool_result_message(msg):
@@ -186,7 +217,10 @@ def apply_to_messages(
         tool_name: str | None = None
         tool_input: dict[str, Any] = {}
         if tuid:
-            tool_name, tool_input = _find_tool_use(messages, tuid)
+            tool_name, tool_input = tool_use_index.get(tuid, (None, {}))
+            if tuid not in tool_use_index:
+                # Orphaned tool_result — interceptors run without tool context.
+                logger.debug("tool_result %s has no matching tool_use", tuid)
 
         current = original
         for interceptor in INTERCEPTORS:
@@ -198,7 +232,11 @@ def apply_to_messages(
                     key = key_fn(tool_name, tool_input)
                 except Exception as e:  # noqa: BLE001
                     logger.warning("interceptor %s key() failed: %s", interceptor.name, e)
-                    key = None
+                    _record_failure(interceptor.name)
+                    # Skip this interceptor entirely rather than firing
+                    # without progressive-disclosure protection — a broken
+                    # key would otherwise fire on every Read of the same file.
+                    continue
             if key and key in fired.get(interceptor.name, set()):
                 continue
 
@@ -208,6 +246,7 @@ def apply_to_messages(
                 rewritten = interceptor.transform(tool_name, tool_input, current)
             except Exception as e:  # noqa: BLE001 — never crash a request
                 logger.warning("interceptor %s failed: %s", interceptor.name, e)
+                _record_failure(interceptor.name)
                 continue
             if not rewritten or rewritten == current:
                 continue
@@ -239,6 +278,9 @@ class ToolResultInterceptorTransform(Transform):
     Placed at transforms[0] so downstream compressors operate on the already-
     shrunk content. Transform names of firing interceptors are added to
     `transforms_applied` so they appear in existing dashboards/metrics.
+
+    Honors the standard `frozen_message_count` contract: leading messages in
+    the provider's prefix cache are not modified, preserving cache hits.
     """
 
     name = "tool_result_interceptors"
@@ -249,12 +291,24 @@ class ToolResultInterceptorTransform(Transform):
         tokenizer: Tokenizer,
         **kwargs: Any,
     ) -> TransformResult:
-        result = apply_to_messages(messages, tokenizer)
-        tokens_after = tokenizer.count_messages(result.messages)
-        tokens_before = tokens_after + sum(s.tokens_saved for s in result.spans)
+        # Measure the true baseline on the original messages — back-calculating
+        # from `tokens_after + sum(saved)` would double-count per-message
+        # overhead that spans don't track.
+        tokens_before = tokenizer.count_messages(messages)
+
+        # Honor the frozen prefix: never touch cached messages.
+        frozen = int(kwargs.get("frozen_message_count") or 0)
+        if frozen > 0:
+            frozen_msgs, mutable_msgs = messages[:frozen], messages[frozen:]
+        else:
+            frozen_msgs, mutable_msgs = [], messages
+
+        result = apply_to_messages(mutable_msgs, tokenizer)
+        out_messages = frozen_msgs + result.messages
+        tokens_after = tokenizer.count_messages(out_messages)
         transforms_applied = [f"interceptor:{s.tool}" for s in result.spans] if result.spans else []
         return TransformResult(
-            messages=result.messages,
+            messages=out_messages,
             tokens_before=tokens_before,
             tokens_after=tokens_after,
             transforms_applied=transforms_applied,

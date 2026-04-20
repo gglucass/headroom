@@ -52,8 +52,11 @@ def _exec_tool(tool: str, argv: Sequence[str]) -> None:
         click.secho(f"error: {e}", fg="red", err=True)
         sys.exit(2)
 
-    # Replace the current process on POSIX for correct signal handling;
-    # fall back to subprocess on Windows where os.execv is awkward.
+    # Replace the current process on POSIX for correct signal handling and
+    # fd/pty passthrough. NOTE: os.execv replaces the process image — atexit
+    # handlers, context managers, and Python finalizers do NOT run. Anything
+    # that needs to clean up on shell exit must be handled elsewhere (e.g.
+    # the parent `headroom` process, not these thin passthroughs).
     cmd = [str(path), *argv]
     if os.name == "posix":
         os.execv(cmd[0], cmd)  # never returns
@@ -212,8 +215,13 @@ def tools_install_cmd(tools: tuple[str, ...], force: bool) -> None:
                 )
                 if cached.exists():
                     cached.unlink()
-            except Exception:  # noqa: BLE001
-                pass
+            except OSError as e:
+                click.secho(
+                    f"{name}: failed to remove cached binary: {e}",
+                    fg="yellow",
+                    err=True,
+                )
+                exit_code = 1
         try:
             path = binaries.resolve(name)
             click.secho(f"{name}: installed → {path}", fg="green")

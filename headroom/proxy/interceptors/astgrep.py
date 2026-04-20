@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import shutil
 import subprocess
 import tempfile
 from pathlib import Path
@@ -33,6 +34,11 @@ MIN_CHARS_TO_REWRITE = int(os.environ.get("HEADROOM_INTERCEPT_READ_MIN_CHARS", "
 
 # Tool_input keys that indicate the model targeted a specific line range;
 # outlining would frustrate that intent and likely cause a re-read.
+# Provenance of the keys we recognize:
+#   offset / limit        — Claude Code's Read tool (pagination by line).
+#   line_range            — Cursor / VS Code Copilot read_file with explicit range.
+#   start_line / end_line — Aider, Continue, some MCP filesystem servers.
+#   ranges                — OpenAI Codex file tools (list of [start,end] pairs).
 _RANGE_KEYS = ("offset", "limit", "line_range", "start_line", "end_line", "ranges")
 
 # ast-grep --lang is passed these values; only extensions with a stable
@@ -121,7 +127,17 @@ class AstGrepReadOutline:
         tool_input: dict[str, Any],
     ) -> str | None:
         """Key by file_path so a second Read of the same file passes through."""
-        return _path_from_input(tool_input)
+        path = _path_from_input(tool_input)
+        if path is None:
+            # matches() returned True but no recognized path key — the tool
+            # may use an unknown key (e.g. some MCP servers use `file`).
+            # Without a key, progressive disclosure can't protect against
+            # re-outlining; log once for observability.
+            logger.debug(
+                "ast-grep: no path key in tool_input (keys=%s); progressive disclosure disabled",
+                sorted(tool_input.keys()),
+            )
+        return path
 
 
 def _detect_lang_from_input(tool_input: dict[str, Any]) -> str | None:
@@ -155,10 +171,16 @@ def _run_ast_grep(
         return []
 
     # Use the canonical extension so ast-grep can pick the right grammar.
+    # Write into a private mode-0700 temp dir — /tmp is shared on multi-tenant
+    # systems and tool_output is untrusted content.
     ext = next((e for e, L in _EXT_TO_LANG.items() if L == lang), ".txt")
-    with tempfile.NamedTemporaryFile(mode="w", suffix=ext, delete=False, encoding="utf-8") as tmp:
-        tmp.write(source)
-        tmp_path = tmp.name
+    tmp_dir = Path(tempfile.mkdtemp(prefix="headroom-sg-"))
+    try:
+        os.chmod(tmp_dir, 0o700)
+    except OSError:
+        pass  # best-effort on Windows / restricted FS
+    tmp_path = tmp_dir / f"src{ext}"
+    tmp_path.write_text(source, encoding="utf-8")
 
     try:
         for pattern in patterns:
@@ -172,7 +194,7 @@ def _run_ast_grep(
                         "--lang",
                         lang,
                         "--json=stream",
-                        tmp_path,
+                        str(tmp_path),
                     ],
                     capture_output=True,
                     text=True,
@@ -182,21 +204,36 @@ def _run_ast_grep(
             except (subprocess.TimeoutExpired, OSError) as e:
                 logger.debug("ast-grep timed out or failed: %s", e)
                 continue
-            if completed.returncode != 0:
+            # rc=0: matches. rc=1: no matches (expected). rc>=2: real error
+            # (bad syntax, grammar missing, corrupt binary) — log it so
+            # users can diagnose.
+            if completed.returncode == 1:
                 continue
-            for line in completed.stdout.splitlines():
-                line = line.strip()
-                if not line:
-                    continue
+            if completed.returncode >= 2:
+                logger.debug(
+                    "ast-grep error (rc=%d, lang=%s, pattern=%r): %s",
+                    completed.returncode,
+                    lang,
+                    pattern,
+                    (completed.stderr or "")[:200],
+                )
+                continue
+            lines = [ln.strip() for ln in completed.stdout.splitlines() if ln.strip()]
+            parse_failures = 0
+            for line in lines:
                 try:
                     all_matches.append(json.loads(line))
                 except json.JSONDecodeError:
-                    continue
+                    parse_failures += 1
+            if lines and parse_failures == len(lines):
+                logger.warning(
+                    "ast-grep produced output but every line failed to parse as JSON "
+                    "(rc=0, lang=%s, pattern=%r) — likely version mismatch or corrupt binary",
+                    lang,
+                    pattern,
+                )
     finally:
-        try:
-            Path(tmp_path).unlink()
-        except OSError:
-            pass
+        shutil.rmtree(tmp_dir, ignore_errors=True)
 
     return all_matches
 

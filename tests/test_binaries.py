@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import hashlib
 import io
-import os
 import sys
 import tarfile
 import zipfile
@@ -186,20 +185,44 @@ def test_offline_error_when_fetch_required(monkeypatch):
         binaries.resolve("difft")
 
 
-def test_mirror_substitution():
-    os.environ["HEADROOM_BINARIES_MIRROR"] = "https://mirror.example.com/gh"
+def test_mirror_substitution(monkeypatch):
+    monkeypatch.setenv("HEADROOM_BINARIES_MIRROR", "https://mirror.example.com/gh")
+    out = binaries._mirror_url(
+        "https://github.com/Wilfred/difftastic/releases/download/0.64.0/x.tar.gz"
+    )
+    assert (
+        out == "https://mirror.example.com/gh/Wilfred/difftastic/releases/download/0.64.0/x.tar.gz"
+    )
+    # Non-matching URLs are left alone.
+    assert binaries._mirror_url("https://example.com/x") == "https://example.com/x"
+
+
+def test_mirror_url_with_query_params_strips_them_from_download_filename(monkeypatch, fake_urlopen):
+    """Mirror URLs with `?token=...` must not leak into the download filename.
+
+    Regression test for the case where `Path(url).name` gave
+    `difft.tar.gz?token=abc`, which broke `.endswith(".tar.gz")` detection
+    and resulted in a raw archive being copied as an "executable."
+    """
+    _set_platform(monkeypatch, sys_plat="darwin", machine="arm64")
+    monkeypatch.setattr(binaries.shutil, "which", lambda _name: None)
+    archive = _make_tar_gz({"difft": b"ok"})
+    tokened_url = (
+        "https://github.com/Wilfred/difftastic/releases/download/0.64.0/"
+        "difft-aarch64-apple-darwin.tar.gz?token=abc&sig=xyz"
+    )
+    # Override the registry URL for this test.
+    reg = binaries._registry()
+    asset = reg["tools"]["difft"]["assets"]["darwin-aarch64"]
+    original_url = asset["url"]
+    asset["url"] = tokened_url
+    fake_urlopen[tokened_url] = archive
     try:
-        out = binaries._mirror_url(
-            "https://github.com/Wilfred/difftastic/releases/download/0.64.0/x.tar.gz"
-        )
-        assert (
-            out
-            == "https://mirror.example.com/gh/Wilfred/difftastic/releases/download/0.64.0/x.tar.gz"
-        )
-        # Non-matching URLs are left alone.
-        assert binaries._mirror_url("https://example.com/x") == "https://example.com/x"
+        path = binaries.resolve("difft")
+        assert path.exists()
+        assert path.read_bytes() == b"ok"
     finally:
-        del os.environ["HEADROOM_BINARIES_MIRROR"]
+        asset["url"] = original_url
 
 
 def test_fetch_extract_and_cache_tar_gz(monkeypatch, fake_urlopen, tmp_path):
@@ -269,6 +292,31 @@ def test_sha256_match_passes(monkeypatch, fake_urlopen):
 
 
 # -------- status() ------------------------------------------------------- #
+
+
+def test_ensure_tools_partial_failure_proxy_still_starts(monkeypatch):
+    """If one tool fails to fetch, others still install and ensure_tools returns."""
+    _set_platform(monkeypatch, sys_plat="darwin", machine="arm64")
+    monkeypatch.setattr(binaries.shutil, "which", lambda _name: None)
+
+    scc_asset = binaries._registry()["tools"]["scc"]["assets"]["darwin-aarch64"]
+    scc_tar = _make_tar_gz({"scc": b"ok"})
+
+    def selective_urlopen(req, timeout=None):  # noqa: ARG001
+        url = req.full_url if hasattr(req, "full_url") else req
+        if url == scc_asset["url"]:
+            return _FakeResponse(scc_tar)
+        # difft fails with a real network-style error.
+        import urllib.error
+
+        raise urllib.error.URLError("simulated network failure")
+
+    monkeypatch.setattr(binaries.urllib.request, "urlopen", selective_urlopen)
+
+    result = binaries.ensure_tools(quiet=True)
+    # scc succeeded; difft failed but ensure_tools() did not crash.
+    assert result["scc"] is not None
+    assert result["difft"] is None
 
 
 def test_status_reports_every_registered_tool(monkeypatch):

@@ -9,10 +9,13 @@ import pytest
 from headroom.proxy.interceptors import (
     INTERCEPTORS,
     ToolResultInterceptor,
+    ToolResultInterceptorTransform,
     apply_to_messages,
+    interceptor_failure_counts,
     register,
 )
 from headroom.proxy.interceptors.astgrep import AstGrepReadOutline
+from headroom.proxy.interceptors.base import reset_interceptor_failure_counts
 from headroom.tokenizer import Tokenizer
 
 
@@ -398,3 +401,240 @@ def test_openai_format_tool_result_is_rewritten(tokenizer):
     assert len(result.spans) == 1
     new_content = result.messages[1]["content"]
     assert "outlined by ast-grep" in new_content
+
+
+# -------- Failure isolation & safety guarantees -------------------------- #
+
+
+def test_failing_interceptor_does_not_crash_request(tokenizer):
+    """If transform() raises, the request still succeeds unchanged."""
+    reset_interceptor_failure_counts()
+
+    class BoomInterceptor:
+        name = "boom"
+
+        def matches(self, tool_name, tool_input, tool_output):
+            return tool_name == "Read"
+
+        def transform(self, tool_name, tool_input, tool_output):
+            raise RuntimeError("simulated interceptor bug")
+
+    register(BoomInterceptor())
+    try:
+        messages = [
+            {
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "b",
+                        "name": "Read",
+                        "input": {"file_path": "/repo/payments.py"},
+                    }
+                ],
+            },
+            {
+                "role": "user",
+                "content": [{"type": "tool_result", "tool_use_id": "b", "content": _PY_FIXTURE}],
+            },
+        ]
+        result = apply_to_messages(messages, tokenizer)
+        # No span recorded for boom; request survives.
+        assert not any(s.tool == "boom" for s in result.spans)
+        # The failure counter incremented.
+        assert interceptor_failure_counts().get("boom") == 1
+    finally:
+        INTERCEPTORS[:] = [i for i in INTERCEPTORS if i.name != "boom"]
+
+
+def test_failing_key_skips_interceptor_entirely(tokenizer):
+    """Broken progressive_disclosure_key() must skip, not fire without a key."""
+    reset_interceptor_failure_counts()
+    fire_count = {"n": 0}
+
+    class BadKey:
+        name = "bad-key"
+
+        def matches(self, tool_name, tool_input, tool_output):
+            return tool_name == "Read"
+
+        def transform(self, tool_name, tool_input, tool_output):
+            fire_count["n"] += 1
+            return "X"  # reduces tokens
+
+        def progressive_disclosure_key(self, tool_name, tool_input):
+            raise RuntimeError("cannot compute key")
+
+    register(BadKey())
+    try:
+        messages = [
+            {
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "k",
+                        "name": "Read",
+                        "input": {"file_path": "/repo/payments.py"},
+                    }
+                ],
+            },
+            {
+                "role": "user",
+                "content": [{"type": "tool_result", "tool_use_id": "k", "content": _PY_FIXTURE}],
+            },
+        ]
+        apply_to_messages(messages, tokenizer)
+        assert fire_count["n"] == 0  # transform never ran
+        assert interceptor_failure_counts().get("bad-key") == 1
+    finally:
+        INTERCEPTORS[:] = [i for i in INTERCEPTORS if i.name != "bad-key"]
+
+
+def test_refuses_to_enlarge(tokenizer):
+    """If rewrite has MORE tokens than original, pass through unchanged.
+
+    Uses a non-code tool path so only the Inflater runs (ast-grep passes
+    through on non-Read tools).
+    """
+    original_content = "some data " * 200
+
+    class Inflater:
+        name = "inflater"
+
+        def matches(self, tool_name, tool_input, tool_output):
+            return tool_name == "FetchPage"
+
+        def transform(self, tool_name, tool_input, tool_output):
+            return tool_output + (" padding" * 200)
+
+    register(Inflater())
+    try:
+        messages = [
+            {
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "i",
+                        "name": "FetchPage",
+                        "input": {"url": "https://example.com"},
+                    }
+                ],
+            },
+            {
+                "role": "user",
+                "content": [
+                    {"type": "tool_result", "tool_use_id": "i", "content": original_content}
+                ],
+            },
+        ]
+        result = apply_to_messages(messages, tokenizer)
+        assert not any(s.tool == "inflater" for s in result.spans)
+        # Original content preserved.
+        assert result.messages[1]["content"][0]["content"] == original_content
+    finally:
+        INTERCEPTORS[:] = [i for i in INTERCEPTORS if i.name != "inflater"]
+
+
+def test_orphaned_tool_result_does_not_crash(tokenizer):
+    """A tool_result with no matching tool_use still runs safely (no tool_name)."""
+    messages = [
+        # No tool_use block — the model's prior turn is missing.
+        {
+            "role": "user",
+            "content": [
+                {"type": "tool_result", "tool_use_id": "orphan-id", "content": _PY_FIXTURE}
+            ],
+        },
+    ]
+    result = apply_to_messages(messages, tokenizer)
+    # ast-grep.matches() returns False when tool_name is None, so no span.
+    assert result.spans == []
+    # The orphan message is preserved.
+    assert result.messages[0]["content"][0]["content"] == _PY_FIXTURE
+
+
+# -------- Transform adapter tests ---------------------------------------- #
+
+
+def test_transform_adapter_applies_interceptors(tokenizer):
+    """ToolResultInterceptorTransform.apply() runs interceptors + records tokens."""
+    transform = ToolResultInterceptorTransform()
+    messages = [
+        {
+            "role": "assistant",
+            "content": [
+                {
+                    "type": "tool_use",
+                    "id": "a",
+                    "name": "Read",
+                    "input": {"file_path": "/repo/payments.py"},
+                }
+            ],
+        },
+        {
+            "role": "user",
+            "content": [{"type": "tool_result", "tool_use_id": "a", "content": _PY_FIXTURE}],
+        },
+    ]
+    result = transform.apply(messages, tokenizer)
+    assert result.tokens_after < result.tokens_before
+    assert "interceptor:ast-grep" in result.transforms_applied
+
+
+def test_transform_adapter_respects_frozen_message_count(tokenizer):
+    """Messages in the frozen prefix must be untouched to preserve prefix caches."""
+    transform = ToolResultInterceptorTransform()
+    messages = [
+        # Frozen prefix (first tool_result) — MUST pass through unchanged.
+        {
+            "role": "assistant",
+            "content": [
+                {
+                    "type": "tool_use",
+                    "id": "t1",
+                    "name": "Read",
+                    "input": {"file_path": "/repo/a.py"},
+                }
+            ],
+        },
+        {
+            "role": "user",
+            "content": [{"type": "tool_result", "tool_use_id": "t1", "content": _PY_FIXTURE}],
+        },
+        # Mutable tail (second Read of a different file) — free to outline.
+        {
+            "role": "assistant",
+            "content": [
+                {
+                    "type": "tool_use",
+                    "id": "t2",
+                    "name": "Read",
+                    "input": {"file_path": "/repo/b.py"},
+                }
+            ],
+        },
+        {
+            "role": "user",
+            "content": [{"type": "tool_result", "tool_use_id": "t2", "content": _PY_FIXTURE}],
+        },
+    ]
+    result = transform.apply(messages, tokenizer, frozen_message_count=2)
+    # Frozen prefix identity preserved (exact same list refs).
+    assert result.messages[0] is messages[0]
+    assert result.messages[1] is messages[1]
+    # Tail got outlined.
+    assert "outlined by ast-grep" in result.messages[3]["content"][0]["content"]
+
+
+def test_transform_adapter_tokens_before_is_baseline_not_reconstruction(tokenizer):
+    """tokens_before must reflect the real original messages, not back-calc."""
+    transform = ToolResultInterceptorTransform()
+    messages = [
+        {"role": "user", "content": [{"type": "text", "text": "plain non-tool message"}]},
+    ]
+    result = transform.apply(messages, tokenizer)
+    # No spans, no change.
+    assert result.tokens_before == result.tokens_after
+    assert result.transforms_applied == []

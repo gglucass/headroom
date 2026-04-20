@@ -281,11 +281,24 @@ def proxy(
     # tools are downloaded once at startup if missing, then cached per-user.
     from headroom.binaries import ensure_tools
 
-    ensure_tools()
+    resolved_tools = ensure_tools()
 
     # Opt-in: turn on tool_result interceptors (ast-grep Read outline, etc.).
     # The TransformPipeline reads this env var at construction time.
     if intercept_tool_results:
+        # Validate each interceptor's critical tool actually installed. Today
+        # only the ast-grep Read outliner is wired; add entries here as
+        # interceptors gain dependencies.
+        critical_tools = ["ast-grep"]
+        missing = [t for t in critical_tools if not resolved_tools.get(t)]
+        if missing:
+            click.secho(
+                f"warning: --intercept-tool-results set but tool(s) unavailable: {missing}. "
+                "Interceptors depending on them will silently pass through. "
+                "Run `headroom tools doctor` to diagnose.",
+                fg="yellow",
+                err=True,
+            )
         os.environ["HEADROOM_INTERCEPT_ENABLED"] = "1"
 
     # Resolve API URL overrides: CLI flag > env var > None

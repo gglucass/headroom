@@ -6,16 +6,29 @@
       "binary": "difft",
       "source": "Wilfred/difftastic",
       "homepage": "https://difftastic.wilfred.me.uk/",
+      "_comment": "Upstream publishes glibc Linux builds only. The glibc binaries run on musl hosts (Alpine) via compatibility shims, so we point both gnu and musl keys at the same asset and document it here for auditors.",
       "assets": {
         "linux-x86_64-gnu": {
           "url": "https://github.com/Wilfred/difftastic/releases/download/0.64.0/difft-x86_64-unknown-linux-gnu.tar.gz",
           "member": "difft",
           "sha256": null
         },
+        "linux-x86_64-musl": {
+          "url": "https://github.com/Wilfred/difftastic/releases/download/0.64.0/difft-x86_64-unknown-linux-gnu.tar.gz",
+          "member": "difft",
+          "sha256": null,
+          "_comment": "same asset as linux-x86_64-gnu; upstream has no dedicated musl build"
+        },
         "linux-aarch64-gnu": {
           "url": "https://github.com/Wilfred/difftastic/releases/download/0.64.0/difft-aarch64-unknown-linux-gnu.tar.gz",
           "member": "difft",
           "sha256": null
+        },
+        "linux-aarch64-musl": {
+          "url": "https://github.com/Wilfred/difftastic/releases/download/0.64.0/difft-aarch64-unknown-linux-gnu.tar.gz",
+          "member": "difft",
+          "sha256": null,
+          "_comment": "same asset as linux-aarch64-gnu"
         },
         "darwin-x86_64": {
           "url": "https://github.com/Wilfred/difftastic/releases/download/0.64.0/difft-x86_64-apple-darwin.tar.gz",
@@ -39,6 +52,7 @@
       "binary": "scc",
       "source": "boyter/scc",
       "homepage": "https://github.com/boyter/scc",
+      "_comment": "scc is a statically-linked Go binary, so the same asset is used for both libc variants. The duplicated gnu/musl entries are intentional — they document musl support for `headroom tools doctor`.",
       "assets": {
         "linux-x86_64-gnu": {
           "url": "https://github.com/boyter/scc/releases/download/v3.5.0/scc_Linux_x86_64.tar.gz",
