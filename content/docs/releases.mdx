@@ -5,7 +5,9 @@ description: Automated release pipeline with semantic versioning, multi-package 
 
 ## Overview
 
-Headroom uses a unified GitHub Actions workflow (`.github/workflows/release.yml`) that automatically publishes all three packages, generates changelogs from conventional commits, and creates GitHub Releases.
+Headroom uses a unified GitHub Actions workflow (`.github/workflows/release.yml`) that automatically publishes all three packages, builds version-matched Docker images, generates changelogs from conventional commits, and creates GitHub Releases with package assets attached.
+
+The release workflow also calls `.github/workflows/docker.yml` as a reusable workflow so GHCR images are published in the same release run with the exact same synced version as PyPI, npm, and GitHub release assets.
 
 ## Packages & Registries
 
@@ -14,7 +16,11 @@ Headroom uses a unified GitHub Actions workflow (`.github/workflows/release.yml`
 | `headroom-ai` | Python | PyPI | `PYPI_PACKAGE` |
 | `headroom-ai` | TypeScript SDK | npmjs.org | `NPM_SDK_PACKAGE` |
 | `headroom-openclaw` | TypeScript plugin | npmjs.org | `NPM_OPENCLAW_PACKAGE` |
-| `headroom-openclaw` | TypeScript plugin | GitHub Package Registry | — |
+| `@{owner}/headroom-ai` | TypeScript SDK | GitHub Package Registry | — |
+| `@{owner}/headroom-openclaw` | TypeScript plugin | GitHub Package Registry | — |
+| `headroom-ai-{version}.tar.gz` / `headroom_ai-{version}-py3-none-any.whl` | Python release assets | GitHub Release (`{owner}/headroom`) | — |
+| `headroom-ai-{version}.tgz` / `headroom-openclaw-{version}.tgz` | Node release assets | GitHub Release (`{owner}/headroom`) | — |
+| `ghcr.io/{owner}/headroom` | Docker image | GitHub Container Registry | — |
 
 ## Version Strategy
 
@@ -36,13 +42,13 @@ The workflow uses a **canonical + commit-height** algorithm that eliminates infi
 
 ## Conventional Commits & Semantic Bumping
 
-The workflow analyzes the **latest commit** to determine the bump level:
+The workflow analyzes the **unreleased commits since the previous release tag** and applies the highest required bump level:
 
 | Commit | Bump | Git Tag Example | npm Version |
 |--------|------|-----------------|-------------|
 | `fix:`, `ci:`, `chore:`, `perf:`, `refactor:` | patch | `v0.5.25.3` | `0.5.26` |
 | `feat:` | minor | `v0.6.0.0` | `0.6.0` |
-| `feat!:` or `feat:` + `BREAKING CHANGE` in body | major | `v1.0.0.0` | `1.0.0` |
+| Any conventional commit with `!` or any commit with `BREAKING CHANGE` in the body | major | `v1.0.0.0` | `1.0.0` |
 
 Commits are linted in CI via `commitlint` using `@commitlint/config-conventional`.
 
@@ -74,7 +80,7 @@ detect-version → build → publish-pypi
 **Note:** The workflow never commits back to the repo. `pyproject.toml` is updated manually before merging.
 
 ### detect-version
-Reads canonical version from `pyproject.toml`, counts commits since last `v{canonical}.*` tag, determines bump level from the latest commit message, and computes both the git tag version (`v{canonical}.{height}`) and npm version (3-part semver).
+Reads canonical version from `pyproject.toml`, counts commits since the previous release tag, chooses the highest bump level across that unreleased commit range, and computes both the git tag version (`v{canonical}.{height}`) and npm version (3-part semver).
 
 ### build
 1. Syncs version across TypeScript package files via `scripts/version-sync.py --version {npm_version}`
@@ -91,10 +97,18 @@ Publishes both TypeScript packages to npmjs.org:
 - `plugins/openclaw/` as `headroom-openclaw`
 
 ### publish-github-packages
-Publishes `plugins/openclaw/` to GitHub Package Registry (`npm.pkg.github.com`).
+Publishes both Node packages to GitHub Package Registry (`npm.pkg.github.com`) using the current repository owner as the npm scope:
+- `sdk/typescript/` as `@{owner}/headroom-ai`
+- `plugins/openclaw/` as `@{owner}/headroom-openclaw`
+
+### GitHub release assets
+Uploads the built Python distributions and both npm tarballs to the GitHub Release created in the current repository. This is what makes fork-owned main-branch builds downloadable for local validation even when consumers are not pulling from PyPI or npmjs.org.
+
+### publish-docker
+Calls the reusable Docker workflow to publish GHCR images with the same semantic version and synced package metadata as the rest of the release.
 
 ### create-release
-Creates a GitHub Release with the generated changelog as release notes, tagged as `v{canonical}.{height}`.
+Creates or updates the GitHub Release in the current repo, uploads the built Python distributions and npm tarballs as release assets, and publishes the generated changelog as release notes. The job still runs after the build succeeds even if one of the external registry publishes fails, so GitHub-hosted artifacts remain available on `main`.
 
 ## Configuration
 
@@ -126,7 +140,7 @@ To skip a publish target, set the corresponding GitHub Actions variable:
 |----------|--------|
 | `PYPI_SKIP=true` | Skip PyPI publish |
 | `NPM_SKIP=true` | Skip both npm publishes |
-| `GITHUB_PKG_SKIP=true` | Skip GitHub Package Registry publish |
+| `GH_PACKAGES_SKIP=true` | Skip GitHub Package Registry publish |
 
 Set these in: **GitHub repo → Settings → Variables → Actions Variables → New repository variable**.
 
@@ -179,7 +193,7 @@ winget install actionlint
 ### Dry-run Test
 
 ```bash
-act -W .github/workflows/release.yml -e .github/act/dry-run.json
+act workflow_dispatch -W .github/workflows/release.yml -e .github/act/dry-run.json
 ```
 
 This runs the full workflow end-to-end with `dry_run=true`, skipping all publish steps.
@@ -187,10 +201,18 @@ This runs the full workflow end-to-end with `dry_run=true`, skipping all publish
 ### Test a Specific Commit Type
 
 ```bash
-act -W .github/workflows/release.yml -e .github/act/push-feat.json
+act push -W .github/workflows/release.yml -e .github/act/push-feat.json
 ```
 
 The `push-feat.json` event file simulates a `feat:` commit on `main`.
+
+### Validate the Release and Docker Workflows
+
+```bash
+bash scripts/validate-workflows.sh
+```
+
+This runs `actionlint` plus `act -n` against the release and Docker workflows using the checked-in `.github/act/*.json` event fixtures. CI runs the same script in the `workflow-validation` job so branch changes to release automation are validated before merge.
 
 ### Local Secrets
 
@@ -214,6 +236,8 @@ cp .env.act.example .env.act
 | `scripts/verify-versions.py` | Pre-release version alignment check |
 | `.github/act/dry-run.json` | `act` event file for dry-run testing |
 | `.github/act/push-feat.json` | `act` event file for feat commit testing |
+| `.github/act/docker-version.json` | `act` event file for Docker workflow validation |
+| `scripts/validate-workflows.sh` | Shared `actionlint` + `act -n` workflow validation script |
 | `.actrc` | Default `act` flags (Ubuntu runner, reuse, quiet) |
 | `.actrc.local.example` | Local `act` override template |
 
