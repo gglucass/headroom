@@ -1660,6 +1660,7 @@ def create_app(config: ProxyConfig | None = None) -> FastAPI:
             "cache": await proxy.cache.stats() if proxy.cache else None,
             "rate_limiter": await proxy.rate_limiter.stats() if proxy.rate_limiter else None,
             "recent_requests": proxy.logger.get_recent(10) if proxy.logger else [],
+            "log_full_messages": proxy.config.log_full_messages if proxy else False,
             **get_quota_registry().get_all_stats(),
         }
 
@@ -1678,6 +1679,39 @@ def create_app(config: ProxyConfig | None = None) -> FastAPI:
             )
 
         return proxy.metrics.savings_tracker.history_response()
+
+    @app.get("/transformations/feed")
+    async def transformations_feed(limit: int = 20):
+        """Get recent message transformations for the live feed.
+
+        Returns empty list if log_full_messages is disabled (messages are not stored).
+        """
+        if limit > 100:
+            limit = 100
+
+        transformations = []
+        log_full_messages = proxy.config.log_full_messages if proxy else False
+
+        if proxy and proxy.logger:
+            logs = proxy.logger.get_recent_with_messages(limit)
+            for log in logs:
+                transformations.append(
+                    {
+                        "request_id": log.get("request_id"),
+                        "timestamp": log.get("timestamp"),
+                        "provider": log.get("provider"),
+                        "model": log.get("model"),
+                        "input_tokens_original": log.get("input_tokens_original"),
+                        "input_tokens_optimized": log.get("input_tokens_optimized"),
+                        "tokens_saved": log.get("tokens_saved"),
+                        "savings_percent": log.get("savings_percent"),
+                        "transforms_applied": log.get("transforms_applied", []),
+                        "request_messages": log.get("request_messages"),
+                        "response_content": log.get("response_content"),
+                    }
+                )
+
+        return {"transformations": transformations, "log_full_messages": log_full_messages}
 
     @app.get("/subscription-window")
     async def subscription_window():
