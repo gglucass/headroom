@@ -36,3 +36,10 @@ def test_create_release_runs_after_successful_build_even_if_other_publishes_fail
     )
     assert "always()" in content
     assert "needs.build.result == 'success'" in content
+
+
+def test_ci_commitlint_skips_default_github_merge_commits() -> None:
+    content = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+
+    assert "github.event_name != 'push'" in content
+    assert "!startsWith(github.event.head_commit.message, 'Merge pull request ')" in content
