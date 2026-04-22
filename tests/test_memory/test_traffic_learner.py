@@ -555,3 +555,201 @@ class TestFlushDebounce:
         # NOT call flush on every sleep tick — cap is generous.
         assert call_count <= 5, f"Expected few flushes, got {call_count}"
         assert call_count >= 1, "Expected at least one flush during the burst"
+
+
+# =============================================================================
+# Evidence-count persistence & re-sighting bumps
+# =============================================================================
+
+
+class _FakeBackend:
+    """Minimal LocalBackend stand-in that persists to a real SQLite file.
+
+    Provides just enough surface area for TrafficLearner: `_config.db_path`
+    (read by `_resolve_backend_db_path`) and an `async save_memory` that
+    inserts a row and returns an object with `.id`.
+    """
+
+    def __init__(self, db_path):
+        import types as _types
+
+        self._config = _types.SimpleNamespace(db_path=str(db_path))
+        self._db_path = str(db_path)
+
+    async def save_memory(
+        self,
+        *,
+        content: str,
+        user_id: str,
+        importance: float,
+        metadata: dict,
+    ):
+        import json as _json
+        import sqlite3 as _sql
+        import types as _types
+        import uuid
+
+        mid = str(uuid.uuid4())
+        conn = _sql.connect(self._db_path)
+        try:
+            conn.execute(
+                "INSERT INTO memories (id, content, metadata, entity_refs, importance) "
+                "VALUES (?,?,?,?,?)",
+                (mid, content, _json.dumps(metadata), "[]", importance),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+        return _types.SimpleNamespace(id=mid)
+
+
+def _init_db(path):
+    import sqlite3 as _sql
+
+    conn = _sql.connect(path)
+    conn.execute(
+        "CREATE TABLE memories ("
+        "id TEXT PRIMARY KEY, content TEXT NOT NULL, "
+        "metadata TEXT NOT NULL DEFAULT '{}', "
+        "entity_refs TEXT NOT NULL DEFAULT '[]', "
+        "importance REAL NOT NULL DEFAULT 0.5)"
+    )
+    conn.commit()
+    conn.close()
+
+
+def _read_traffic_rows(db_path):
+    import json as _json
+    import sqlite3 as _sql
+
+    conn = _sql.connect(db_path)
+    try:
+        rows = conn.execute(
+            "SELECT id, content, metadata FROM memories "
+            "WHERE json_extract(metadata, '$.source') = 'traffic_learner'"
+        ).fetchall()
+    finally:
+        conn.close()
+    return [(r[0], r[1], _json.loads(r[2])) for r in rows]
+
+
+async def _wait_for_saved(learner: TrafficLearner, count: int, db_path) -> None:
+    """Wait until at least `count` traffic_learner rows exist in the DB."""
+    import asyncio as _asyncio
+
+    for _ in range(100):
+        if len(_read_traffic_rows(db_path)) >= count:
+            return
+        await _asyncio.sleep(0.02)
+    raise AssertionError(
+        f"Timeout waiting for {count} saved row(s); got {len(_read_traffic_rows(db_path))}"
+    )
+
+
+class TestEvidencePersistence:
+    @pytest.mark.asyncio
+    async def test_save_persists_actual_evidence_count(self, tmp_path):
+        """The count written to the DB reflects total sightings, not the default 1."""
+        db = tmp_path / "memory.db"
+        _init_db(db)
+        backend = _FakeBackend(db)
+        learner = TrafficLearner(backend=backend, min_evidence=3)
+        await learner.start()
+
+        pattern_kwargs = {
+            "category": PatternCategory.ENVIRONMENT,
+            "content": "Use /usr/bin/python3 for system scripts.",
+            "importance": 0.6,
+        }
+        for _ in range(3):
+            await learner._accumulate(ExtractedPattern(**pattern_kwargs))
+        await _wait_for_saved(learner, 1, db)
+        await learner.stop()
+
+        rows = _read_traffic_rows(db)
+        assert len(rows) == 1
+        assert rows[0][2]["evidence_count"] == 3
+
+    @pytest.mark.asyncio
+    async def test_resighting_bumps_persisted_row(self, tmp_path):
+        """Sightings after save bump the existing row instead of creating duplicates."""
+        db = tmp_path / "memory.db"
+        _init_db(db)
+        backend = _FakeBackend(db)
+        learner = TrafficLearner(backend=backend, min_evidence=2)
+        await learner.start()
+
+        def mk() -> ExtractedPattern:
+            return ExtractedPattern(
+                category=PatternCategory.PREFERENCE,
+                content="User preference: terse replies.",
+                importance=0.7,
+            )
+
+        # Two sightings → save with evidence_count=2.
+        await learner._accumulate(mk())
+        await learner._accumulate(mk())
+        await _wait_for_saved(learner, 1, db)
+
+        # Three more sightings → three bumps.
+        for _ in range(3):
+            await learner._accumulate(mk())
+        await learner.stop()
+
+        rows = _read_traffic_rows(db)
+        assert len(rows) == 1, "re-sightings must not create duplicate rows"
+        assert rows[0][2]["evidence_count"] == 5
+
+    @pytest.mark.asyncio
+    async def test_hydrate_prevents_cross_session_duplicates(self, tmp_path):
+        """A second session re-sighting an already-persisted pattern bumps, doesn't insert."""
+        import json as _json
+        import sqlite3 as _sql
+
+        db = tmp_path / "memory.db"
+        _init_db(db)
+
+        # Session 1 row pre-seeded directly.
+        seeded_content = "Command `foo` fails; use `bar` instead."
+        conn = _sql.connect(db)
+        conn.execute(
+            "INSERT INTO memories (id, content, metadata, entity_refs, importance) "
+            "VALUES (?,?,?,?,?)",
+            (
+                "seed-id",
+                seeded_content,
+                _json.dumps(
+                    {
+                        "source": "traffic_learner",
+                        "category": "error_recovery",
+                        "evidence_count": 2,
+                    }
+                ),
+                "[]",
+                0.7,
+            ),
+        )
+        conn.commit()
+        conn.close()
+
+        # Session 2: fresh learner, hydrates from DB on start().
+        backend = _FakeBackend(db)
+        learner = TrafficLearner(backend=backend, min_evidence=2)
+        await learner.start()
+
+        def mk() -> ExtractedPattern:
+            return ExtractedPattern(
+                category=PatternCategory.ERROR_RECOVERY,
+                content=seeded_content,
+                importance=0.7,
+            )
+
+        # Two sightings: both should bump the seeded row (no duplicates).
+        await learner._accumulate(mk())
+        await learner._accumulate(mk())
+        await learner.stop()
+
+        rows = _read_traffic_rows(db)
+        assert len(rows) == 1
+        assert rows[0][0] == "seed-id"
+        assert rows[0][2]["evidence_count"] == 4

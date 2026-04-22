@@ -193,6 +193,10 @@ class TrafficLearner:
 
         # Dedup: hashes of patterns already saved to DB
         self._saved_hashes: set[str] = set()
+        # content_hash → memory.id for persisted rows. Lets re-sightings
+        # bump the existing row's evidence_count instead of creating a
+        # duplicate row.
+        self._persisted_ids: dict[str, str] = {}
         self._dedup_window = dedup_window
 
         # Stats
@@ -225,6 +229,9 @@ class TrafficLearner:
 
     async def start(self) -> None:
         """Start the background save worker and flush worker."""
+        # Hydrate persisted dedup state before workers spin up so cross-session
+        # re-sightings bump existing rows instead of creating duplicates.
+        await self._hydrate_persisted_state()
         if self._save_task is None or self._save_task.done():
             self._save_task = asyncio.create_task(self._save_worker())
         if self._flush_task is None or self._flush_task.done():
@@ -712,8 +719,12 @@ class TrafficLearner:
         self._flush_dirty = True
         h = pattern.content_hash
 
-        # Already saved — skip
+        # Already saved — bump the persisted row's evidence_count rather
+        # than creating a duplicate.
         if h in self._saved_hashes:
+            memory_id = self._persisted_ids.get(h)
+            if memory_id is not None:
+                await self._bump_persisted_evidence(memory_id)
             return
 
         # Accumulate evidence
@@ -736,6 +747,8 @@ class TrafficLearner:
                 # Remove oldest (arbitrary, set is unordered, but prevents growth)
                 self._saved_hashes.pop()
 
+            # Persist the real accumulated count, not the dataclass default.
+            pattern.evidence_count = count
             try:
                 self._save_queue.put_nowait(pattern)
             except asyncio.QueueFull:
@@ -749,7 +762,7 @@ class TrafficLearner:
                 if self._backend is None:
                     continue
 
-                await self._backend.save_memory(
+                memory = await self._backend.save_memory(
                     content=pattern.content,
                     user_id=self._user_id,
                     importance=pattern.importance,
@@ -761,12 +774,87 @@ class TrafficLearner:
                     },
                 )
                 self._patterns_saved += 1
+                # Track id so future re-sightings bump this row.
+                memory_id = getattr(memory, "id", None)
+                if memory_id is not None:
+                    self._persisted_ids[pattern.content_hash] = memory_id
                 logger.debug(f"Traffic learner saved pattern: {pattern.content[:80]}")
 
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 logger.warning(f"Traffic learner save failed: {e}")
+
+    async def _hydrate_persisted_state(self) -> None:
+        """Load existing traffic_learner rows into _saved_hashes / _persisted_ids.
+
+        Runs once at start() so re-sightings across process restarts bump the
+        existing row rather than inserting a duplicate. Read-only; if the DB
+        is absent or unreadable we simply skip.
+        """
+        db_path = _resolve_backend_db_path(self._backend)
+        if db_path is None or not db_path.exists():
+            return
+
+        def _read() -> list[tuple[str, str]]:
+            uri = f"file:{db_path}?mode=ro"
+            try:
+                conn = sqlite3.connect(uri, uri=True)
+            except sqlite3.OperationalError:
+                return []
+            try:
+                rows = conn.execute(
+                    "SELECT id, content FROM memories "
+                    "WHERE json_extract(metadata, '$.source') = 'traffic_learner'"
+                ).fetchall()
+            except sqlite3.DatabaseError:
+                return []
+            finally:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+            return [(row[0], row[1] or "") for row in rows]
+
+        try:
+            rows = await asyncio.to_thread(_read)
+        except Exception as e:
+            logger.debug("Traffic learner hydrate failed: %s", e)
+            return
+
+        for memory_id, content in rows:
+            if not content:
+                continue
+            h = hashlib.sha256(content.encode()).hexdigest()[:16]
+            self._saved_hashes.add(h)
+            # If multiple rows share the same content (legacy duplicates),
+            # last-wins — we only need one id to target the bump.
+            self._persisted_ids[h] = memory_id
+
+    async def _bump_persisted_evidence(self, memory_id: str) -> None:
+        """Atomically increment a persisted row's metadata.evidence_count."""
+        db_path = _resolve_backend_db_path(self._backend)
+        if db_path is None or not db_path.exists():
+            return
+
+        def _bump() -> None:
+            conn = sqlite3.connect(str(db_path))
+            try:
+                conn.execute(
+                    "UPDATE memories SET metadata = json_set("
+                    "metadata, '$.evidence_count', "
+                    "COALESCE(json_extract(metadata, '$.evidence_count'), 0) + 1"
+                    ") WHERE id = ?",
+                    (memory_id,),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+        try:
+            await asyncio.to_thread(_bump)
+        except Exception as e:
+            logger.debug("Traffic learner evidence bump failed for %s: %s", memory_id, e)
 
     # =========================================================================
     # Convenience: Extract from Anthropic messages format
@@ -921,7 +1009,7 @@ def _load_persisted_patterns_from_sqlite(db_path: Path) -> list[ExtractedPattern
         rows = conn.execute(
             "SELECT content, metadata, entity_refs, importance "
             "FROM memories "
-            'WHERE metadata LIKE \'%"source": "traffic_learner"%\''
+            "WHERE json_extract(metadata, '$.source') = 'traffic_learner'"
         ).fetchall()
     except sqlite3.DatabaseError:
         conn.close()
