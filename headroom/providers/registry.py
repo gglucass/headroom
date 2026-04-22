@@ -11,7 +11,6 @@ from typing import TYPE_CHECKING, Any, cast
 from headroom.providers.claude import DEFAULT_API_URL as DEFAULT_ANTHROPIC_API_URL
 from headroom.providers.codex import DEFAULT_API_URL as DEFAULT_OPENAI_API_URL
 from headroom.providers.gemini import DEFAULT_API_URL as DEFAULT_GEMINI_API_URL
-from headroom.proxy.helpers import is_anthropic_auth
 
 DEFAULT_CLOUDCODE_API_URL = "https://cloudcode-pa.googleapis.com"
 
@@ -310,4 +309,9 @@ _CLIENT_TRANSPORTS: dict[str, _ClientTransport] = {
 
 
 def _is_anthropic_auth(headers: Mapping[str, str]) -> bool:
-    return is_anthropic_auth(dict(headers))
+    authorization = headers.get("authorization") or headers.get("Authorization") or ""
+    return bool(
+        headers.get("x-api-key")
+        or headers.get("anthropic-version")
+        or authorization.startswith("Bearer sk-ant-")
+    )
