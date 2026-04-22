@@ -31,6 +31,8 @@ if TYPE_CHECKING:
 
 import httpx
 
+from headroom.copilot_auth import apply_copilot_api_auth
+
 logger = logging.getLogger("headroom.proxy")
 
 
@@ -584,6 +586,7 @@ class OpenAIHandlerMixin:
                     prefix_tracker=openai_prefix_tracker,
                 )
             else:
+                headers = await apply_copilot_api_auth(headers, url=url)
                 response = await self._retry_request("POST", url, headers, body)
 
                 # Full diagnostic dump on upstream errors (OpenAI handler)
@@ -1093,6 +1096,7 @@ class OpenAIHandlerMixin:
                     memory_user_id=memory_user_id,
                 )
             else:
+                headers = await apply_copilot_api_auth(headers, url=url)
                 response = await self._retry_request("POST", url, headers, body)
                 total_latency = (time.time() - start_time) * 1000
 
@@ -1368,6 +1372,8 @@ class OpenAIHandlerMixin:
                     f"[{request_id}] WS: no Authorization header from client and "
                     f"OPENAI_API_KEY not set — upstream will likely reject"
                 )
+
+        upstream_headers = await apply_copilot_api_auth(upstream_headers, url=upstream_url)
 
         # Ensure the required beta header is present — OpenAI returns 500 without it.
         # Codex sends `responses_websockets=2026-02-06`; only inject if missing entirely.
@@ -2463,6 +2469,7 @@ class OpenAIHandlerMixin:
 
         body = await request.body()
 
+        headers = await apply_copilot_api_auth(headers, url=url)
         response = await self.http_client.request(  # type: ignore[union-attr]
             method=request.method,
             url=url,

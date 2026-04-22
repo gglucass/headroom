@@ -21,6 +21,8 @@ if TYPE_CHECKING:
 
 import httpx
 
+from headroom.copilot_auth import apply_copilot_api_auth
+
 logger = logging.getLogger("headroom.proxy")
 
 
@@ -579,6 +581,7 @@ class StreamingMixin:
 
         from headroom.proxy.helpers import MAX_SSE_BUFFER_SIZE
 
+        headers = await apply_copilot_api_auth(headers, url=url)
         start_time = time.time()
 
         # Mutable state for the generator to update
