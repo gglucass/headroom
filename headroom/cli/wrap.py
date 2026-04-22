@@ -818,16 +818,19 @@ def _ensure_proxy(
         # Start (or restart) the proxy with the requested flags
         click.echo(f"  Starting Headroom proxy on port {port}...")
         try:
-            proc = helpers._start_proxy(
-                port,
-                learn=learn,
-                memory=memory,
-                agent_type=agent_type,
-                code_graph=code_graph,
-                backend=backend,
-                anyllm_provider=anyllm_provider,
-                region=region,
-                openai_api_url=openai_api_url,
+            proc = cast(
+                subprocess.Popen[Any],
+                helpers._start_proxy(
+                    port,
+                    learn=learn,
+                    memory=memory,
+                    agent_type=agent_type,
+                    code_graph=code_graph,
+                    backend=backend,
+                    anyllm_provider=anyllm_provider,
+                    region=region,
+                    openai_api_url=openai_api_url,
+                ),
             )
             click.echo(f"  Proxy ready on http://127.0.0.1:{port}")
             return proc

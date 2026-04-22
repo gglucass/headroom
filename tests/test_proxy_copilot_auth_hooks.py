@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import importlib.util
 import sys
 import types
@@ -9,22 +10,43 @@ from types import SimpleNamespace
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
+_ISOLATED_MODULE_NAMES = (
+    "headroom.proxy",
+    "headroom.proxy.handlers",
+    "httpx",
+    "fastapi.responses",
+    "tests.headroom_proxy_handlers_openai",
+    "tests.headroom_proxy_handlers_streaming",
+)
 
 
-def _load_handler_module(module_name: str, relative_path: str):
+@pytest.fixture(autouse=True)
+def restore_isolated_modules() -> None:
+    saved_modules = {name: sys.modules.get(name) for name in _ISOLATED_MODULE_NAMES}
+    try:
+        yield
+    finally:
+        for name in _ISOLATED_MODULE_NAMES:
+            sys.modules.pop(name, None)
+        for name, module in saved_modules.items():
+            if module is not None:
+                sys.modules[name] = module
+
+
+def _load_handler_module(monkeypatch: pytest.MonkeyPatch, module_name: str, relative_path: str):
     proxy_pkg = types.ModuleType("headroom.proxy")
     proxy_pkg.__path__ = [str(ROOT / "headroom" / "proxy")]
-    sys.modules["headroom.proxy"] = proxy_pkg
+    monkeypatch.setitem(sys.modules, "headroom.proxy", proxy_pkg)
 
     handlers_pkg = types.ModuleType("headroom.proxy.handlers")
     handlers_pkg.__path__ = [str(ROOT / "headroom" / "proxy" / "handlers")]
-    sys.modules["headroom.proxy.handlers"] = handlers_pkg
+    monkeypatch.setitem(sys.modules, "headroom.proxy.handlers", handlers_pkg)
 
     httpx_mod = types.ModuleType("httpx")
     httpx_mod.ConnectError = type("ConnectError", (Exception,), {})
     httpx_mod.ConnectTimeout = type("ConnectTimeout", (Exception,), {})
     httpx_mod.PoolTimeout = type("PoolTimeout", (Exception,), {})
-    sys.modules["httpx"] = httpx_mod
+    monkeypatch.setitem(sys.modules, "httpx", httpx_mod)
 
     responses_mod = types.ModuleType("fastapi.responses")
 
@@ -38,21 +60,25 @@ def _load_handler_module(module_name: str, relative_path: str):
     class StreamingResponse(Response):
         pass
 
+    class JSONResponse(Response):
+        pass
+
     responses_mod.Response = Response
     responses_mod.StreamingResponse = StreamingResponse
-    sys.modules["fastapi.responses"] = responses_mod
+    responses_mod.JSONResponse = JSONResponse
+    monkeypatch.setitem(sys.modules, "fastapi.responses", responses_mod)
 
     spec = importlib.util.spec_from_file_location(module_name, ROOT / relative_path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
-    sys.modules[module_name] = module
+    monkeypatch.setitem(sys.modules, module_name, module)
     spec.loader.exec_module(module)
     return module
 
 
-@pytest.mark.asyncio
-async def test_openai_passthrough_applies_copilot_auth(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_openai_passthrough_applies_copilot_auth(monkeypatch: pytest.MonkeyPatch) -> None:
     openai_mod = _load_handler_module(
+        monkeypatch,
         "tests.headroom_proxy_handlers_openai",
         "headroom/proxy/handlers/openai.py",
     )
@@ -95,21 +121,23 @@ async def test_openai_passthrough_applies_copilot_auth(monkeypatch: pytest.Monke
     request.body = body
 
     handler = Dummy()
-    response = await handler.handle_passthrough(
-        request,
-        "https://api.githubcopilot.com",
-        "models",
-        "openai",
+    response = asyncio.run(
+        handler.handle_passthrough(
+            request,
+            "https://api.githubcopilot.com",
+            "models",
+            "openai",
+        )
     )
 
-    assert seen["url"] == "https://api.githubcopilot.com/v1/models"
+    assert seen["url"] == "https://api.githubcopilot.com/models"
     assert seen["request_kwargs"]["headers"] == {"Authorization": "Bearer upstream-token"}
     assert response.status_code == 200
 
 
-@pytest.mark.asyncio
-async def test_streaming_response_applies_copilot_auth(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_streaming_response_applies_copilot_auth(monkeypatch: pytest.MonkeyPatch) -> None:
     streaming_mod = _load_handler_module(
+        monkeypatch,
         "tests.headroom_proxy_handlers_streaming",
         "headroom/proxy/handlers/streaming.py",
     )
@@ -149,19 +177,21 @@ async def test_streaming_response_applies_copilot_auth(monkeypatch: pytest.Monke
             return SimpleNamespace(headers={}, status_code=200)
 
     handler = Dummy()
-    response = await handler._stream_response(
-        url="https://api.githubcopilot.com/v1/responses",
-        headers={"authorization": "Bearer downstream"},
-        body={"model": "gpt-4o"},
-        provider="openai",
-        model="gpt-4o",
-        request_id="req-test",
-        original_tokens=0,
-        optimized_tokens=0,
-        tokens_saved=0,
-        transforms_applied=[],
-        tags={},
-        optimization_latency=0.0,
+    response = asyncio.run(
+        handler._stream_response(
+            url="https://api.githubcopilot.com/v1/responses",
+            headers={"authorization": "Bearer downstream"},
+            body={"model": "gpt-4o"},
+            provider="openai",
+            model="gpt-4o",
+            request_id="req-test",
+            original_tokens=0,
+            optimized_tokens=0,
+            tokens_saved=0,
+            transforms_applied=[],
+            tags={},
+            optimization_latency=0.0,
+        )
     )
 
     assert seen["url"] == "https://api.githubcopilot.com/v1/responses"

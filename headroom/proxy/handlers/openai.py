@@ -31,7 +31,7 @@ if TYPE_CHECKING:
 
 import httpx
 
-from headroom.copilot_auth import apply_copilot_api_auth
+from headroom.copilot_auth import apply_copilot_api_auth, build_copilot_upstream_url
 
 logger = logging.getLogger("headroom.proxy")
 
@@ -558,7 +558,7 @@ class OpenAIHandlerMixin:
                 )
 
         # Direct OpenAI API (no backend configured)
-        url = f"{self.OPENAI_API_URL}/v1/chat/completions"
+        url = build_copilot_upstream_url(self.OPENAI_API_URL, "/v1/chat/completions")
 
         try:
             if stream:
@@ -1075,7 +1075,7 @@ class OpenAIHandlerMixin:
         if is_chatgpt_auth:
             url = "https://chatgpt.com/backend-api/codex/responses"
         else:
-            url = f"{self.OPENAI_API_URL}/v1/responses"
+            url = build_copilot_upstream_url(self.OPENAI_API_URL, "/v1/responses")
 
         try:
             if stream:
@@ -1354,7 +1354,7 @@ class OpenAIHandlerMixin:
             # API key auth → route to configured OpenAI API URL
             base = self.OPENAI_API_URL
             ws_base = base.replace("https://", "wss://").replace("http://", "ws://")
-            upstream_url = f"{ws_base}/v1/responses"
+            upstream_url = build_copilot_upstream_url(ws_base, "/v1/responses")
 
         # Unit 3: attach the resolved upstream URL to the session handle.
         if session_handle is not None:
@@ -2163,7 +2163,7 @@ class OpenAIHandlerMixin:
         if "chatgpt-account-id" in _lower:
             http_url = "https://chatgpt.com/backend-api/codex/responses"
         else:
-            http_url = f"{self.OPENAI_API_URL}/v1/responses"
+            http_url = build_copilot_upstream_url(self.OPENAI_API_URL, "/v1/responses")
 
         # Build HTTP body from the WS response.create payload.
         # WS messages use {"type": "response.create", "response": {...}} wrapper.
@@ -2457,7 +2457,7 @@ class OpenAIHandlerMixin:
 
         start_time = time.time()
         path = request.url.path
-        url = f"{base_url}{path}"
+        url = build_copilot_upstream_url(base_url, path)
 
         # Preserve query string parameters
         if request.url.query:

@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **`headroom learn` no longer clobbers prior recommendations on re-run** —
+  the marker block in `CLAUDE.md` / `MEMORY.md` is now merged with the
+  prior block instead of wholesale-replaced. Sections re-surfaced by the
+  new run win; sections not re-surfaced are carried forward so learnings
+  accumulate across runs instead of disappearing. To fully rebuild the
+  block, delete it manually and re-run. (#231)
+
 ### Added
 - **Telemetry stack & install-mode identity fields** — anonymous beacon now
   reports `headroom_stack` (how Headroom is invoked: `proxy`, `wrap_claude`,
@@ -38,6 +46,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `history_mode=none` to skip it entirely while still receiving the derived
   hourly/daily/weekly/monthly rollups. Responses now include a
   `history_summary` block describing stored versus returned points.
+
+### Fixed
+- **Streaming Anthropic requests are now visible to `/stats.recent_requests`
+  and `/transformations/feed`** — `_finalize_stream_response` did not call
+  `self.logger.log(...)`, so the entire streaming Anthropic code path (the
+  one Claude Code uses) silently bypassed the request logger. Only the
+  non-streaming Anthropic path and the Bedrock streaming path were logged.
+  As a consequence, `--log-messages` had no observable effect on the live
+  transformations feed for typical traffic. The streaming finalizer now
+  emits the same `RequestLog` shape the other paths do, including
+  `request_messages` when `log_full_messages` is enabled.
 
 ## [0.5.22] - 2026-04-11
 

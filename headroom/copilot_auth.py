@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import ctypes
 import json
 import logging
 import os
+import subprocess
 import time
+from ctypes import wintypes
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -67,6 +70,11 @@ def _token_exchange_url() -> str:
     return os.environ.get("GITHUB_COPILOT_TOKEN_EXCHANGE_URL", DEFAULT_TOKEN_EXCHANGE_URL).strip()
 
 
+def _should_exchange_oauth_token() -> bool:
+    raw = os.environ.get("GITHUB_COPILOT_USE_TOKEN_EXCHANGE", "").strip().lower()
+    return raw in {"1", "true", "yes", "on"}
+
+
 def _resolve_token_file_paths() -> list[Path]:
     override = os.environ.get("GITHUB_COPILOT_TOKEN_FILE", "").strip()
     if override:
@@ -81,6 +89,108 @@ def _resolve_token_file_paths() -> list[Path]:
     config_base = Path.home() / ".config" / "github-copilot"
     paths.extend([config_base / "apps.json", config_base / "hosts.json"])
     return paths
+
+
+def _read_gh_cli_oauth_token() -> str | None:
+    gh_bin = os.environ.get("GH_PATH", "").strip() or "gh"
+    command = [gh_bin, "auth", "token"]
+    host = _github_host()
+    if host and host != DEFAULT_GITHUB_HOST:
+        command.extend(["--hostname", host])
+
+    try:
+        result = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+        )
+    except OSError as exc:
+        logger.debug("Unable to invoke GitHub CLI for Copilot auth discovery: %s", exc)
+        return None
+
+    if result.returncode != 0:
+        logger.debug("GitHub CLI auth token lookup failed with exit code %s", result.returncode)
+        return None
+
+    token = result.stdout.strip()
+    return token or None
+
+
+def _read_windows_copilot_cli_oauth_token() -> str | None:
+    if os.name != "nt":
+        return None
+
+    class FILETIME(ctypes.Structure):
+        _fields_ = [
+            ("dwLowDateTime", wintypes.DWORD),
+            ("dwHighDateTime", wintypes.DWORD),
+        ]
+
+    class CREDENTIAL(ctypes.Structure):
+        _fields_ = [
+            ("Flags", wintypes.DWORD),
+            ("Type", wintypes.DWORD),
+            ("TargetName", wintypes.LPWSTR),
+            ("Comment", wintypes.LPWSTR),
+            ("LastWritten", FILETIME),
+            ("CredentialBlobSize", wintypes.DWORD),
+            ("CredentialBlob", ctypes.POINTER(ctypes.c_ubyte)),
+            ("Persist", wintypes.DWORD),
+            ("AttributeCount", wintypes.DWORD),
+            ("Attributes", wintypes.LPVOID),
+            ("TargetAlias", wintypes.LPWSTR),
+            ("UserName", wintypes.LPWSTR),
+        ]
+
+    cred_ptr = ctypes.POINTER(CREDENTIAL)
+    credentials = ctypes.POINTER(cred_ptr)()
+    count = wintypes.DWORD()
+    win_dll = getattr(ctypes, "WinDLL", None)
+    if win_dll is None:
+        return None
+
+    advapi32 = win_dll("Advapi32.dll")
+    advapi32.CredEnumerateW.argtypes = [
+        wintypes.LPCWSTR,
+        wintypes.DWORD,
+        ctypes.POINTER(wintypes.DWORD),
+        ctypes.POINTER(ctypes.POINTER(cred_ptr)),
+    ]
+    advapi32.CredEnumerateW.restype = wintypes.BOOL
+    advapi32.CredFree.argtypes = [wintypes.LPVOID]
+
+    try:
+        if not advapi32.CredEnumerateW(None, 0, ctypes.byref(count), ctypes.byref(credentials)):
+            return None
+    except OSError as exc:
+        logger.debug("Unable to enumerate Windows credentials for Copilot auth discovery: %s", exc)
+        return None
+
+    host = _github_host().lower()
+    service_prefixes = [f"copilot-cli/{host}:"]
+    if "://" not in host:
+        service_prefixes.append(f"copilot-cli/https://{host}:")
+
+    try:
+        for idx in range(count.value):
+            credential = credentials[idx].contents
+            target = (credential.TargetName or "").strip().lower()
+            if not any(target.startswith(prefix) for prefix in service_prefixes):
+                continue
+            if credential.CredentialBlobSize <= 0 or not credential.CredentialBlob:
+                continue
+            blob = ctypes.string_at(credential.CredentialBlob, credential.CredentialBlobSize)
+            token = blob.decode("utf-8", errors="replace").strip()
+            if token:
+                return token
+    finally:
+        if credentials:
+            advapi32.CredFree(credentials)
+
+    return None
 
 
 def _parse_expiry(value: Any) -> float | None:
@@ -157,6 +267,14 @@ def read_cached_oauth_token() -> str | None:
         if token:
             return token
 
+    windows_copilot_token = _read_windows_copilot_cli_oauth_token()
+    if windows_copilot_token:
+        return windows_copilot_token
+
+    gh_token = _read_gh_cli_oauth_token()
+    if gh_token:
+        return gh_token
+
     host = _github_host()
     for path in _resolve_token_file_paths():
         try:
@@ -203,6 +321,16 @@ def is_copilot_api_url(url: str | None) -> bool:
     return "githubcopilot.com" in host
 
 
+def build_copilot_upstream_url(base_url: str, path: str) -> str:
+    """Build an upstream URL, normalizing GitHub Copilot's non-/v1 path layout."""
+
+    normalized_base = base_url.rstrip("/")
+    normalized_path = path if path.startswith("/") else f"/{path}"
+    if is_copilot_api_url(normalized_base) and normalized_path.startswith("/v1/"):
+        normalized_path = normalized_path[3:]
+    return f"{normalized_base}{normalized_path}"
+
+
 class CopilotTokenProvider:
     """Resolve and cache short-lived Copilot API tokens."""
 
@@ -232,6 +360,16 @@ class CopilotTokenProvider:
             oauth_token = read_cached_oauth_token()
             if not oauth_token:
                 raise RuntimeError("No GitHub Copilot OAuth token is available.")
+
+            if not _should_exchange_oauth_token():
+                direct_token = CopilotAPIToken(
+                    token=oauth_token,
+                    expires_at=time.time() + 3600,
+                    api_url=os.environ.get("GITHUB_COPILOT_API_URL", DEFAULT_API_URL).strip()
+                    or DEFAULT_API_URL,
+                )
+                self._cached = direct_token
+                return direct_token
 
             exchanged = await self._exchange_token(oauth_token)
             self._cached = exchanged

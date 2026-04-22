@@ -451,6 +451,7 @@ class StreamingMixin:
         optimization_latency: float,
         stream_state: dict[str, Any],
         start_time: float,
+        tags: dict[str, str] | None = None,
         pipeline_timing: dict[str, float] | None = None,
         prefix_tracker: Any | None = None,
         original_messages: list[dict] | None = None,
@@ -545,6 +546,38 @@ class StreamingMixin:
                 cache_write_5m_tokens=cache_write_5m_tokens,
                 cache_write_1h_tokens=cache_write_1h_tokens,
                 uncached_input_tokens=uncached_input_tokens,
+            )
+
+        # Log the request to the in-memory request logger so it shows up in
+        # /stats `recent_requests` and `/transformations/feed`. Without this
+        # the streaming Anthropic path (which is what Claude Code uses) is
+        # invisible to both surfaces — only Bedrock streaming and the
+        # non-streaming Anthropic path were logged previously.
+        if getattr(self, "logger", None) is not None:
+            from headroom.proxy.models import RequestLog
+
+            self.logger.log(
+                RequestLog(
+                    request_id=request_id,
+                    timestamp=datetime.now().isoformat(),
+                    provider=provider,
+                    model=model,
+                    input_tokens_original=original_tokens,
+                    input_tokens_optimized=optimized_tokens,
+                    output_tokens=output_tokens,
+                    tokens_saved=tokens_saved,
+                    savings_percent=(tokens_saved / original_tokens * 100)
+                    if original_tokens > 0
+                    else 0,
+                    optimization_latency_ms=optimization_latency,
+                    total_latency_ms=total_latency,
+                    tags=tags or {},
+                    cache_hit=False,
+                    transforms_applied=transforms_applied,
+                    request_messages=body.get("messages")
+                    if getattr(self.config, "log_full_messages", False)
+                    else None,
+                )
             )
 
     async def _stream_response(
@@ -702,6 +735,7 @@ class StreamingMixin:
                 optimization_latency=optimization_latency,
                 stream_state=stream_state,
                 start_time=start_time,
+                tags=tags,
                 pipeline_timing=pipeline_timing,
                 prefix_tracker=prefix_tracker,
                 original_messages=original_messages,
@@ -875,6 +909,7 @@ class StreamingMixin:
                     optimization_latency=optimization_latency,
                     stream_state=stream_state,
                     start_time=start_time,
+                    tags=tags,
                     pipeline_timing=pipeline_timing,
                     prefix_tracker=prefix_tracker,
                     original_messages=original_messages,

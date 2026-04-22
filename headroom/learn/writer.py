@@ -87,8 +87,73 @@ def _build_section(recommendations: list[Recommendation]) -> str:
     return "\n".join(lines)
 
 
-def _merge_into_file(file_path: Path, section: str) -> str:
-    """Merge the section into an existing file, replacing any prior section."""
+# Matches the "*~N tokens/session saved*" annotation emitted by _build_section.
+_TOKENS_ANNOTATION_PATTERN = re.compile(r"\*~([\d,]+) tokens/session saved\*\n?")
+
+
+def _parse_prior_recommendations(existing: str) -> list[Recommendation]:
+    """Parse recommendations out of a prior marker block.
+
+    Returns [] if no marker block is present or it contains no sections.
+    The returned Recommendation objects are round-trip compatible with
+    _build_section — target is set to a placeholder since the marker block
+    itself doesn't record it (blocks are always per-file and per-target).
+    """
+    match = _MARKER_PATTERN.search(existing)
+    if not match:
+        return []
+    inner = match.group(0)[len(_MARKER_START) : -len(_MARKER_END)]
+
+    recs: list[Recommendation] = []
+    for part in re.split(r"\n### ", "\n" + inner)[1:]:
+        heading_line, _, body = part.partition("\n")
+        heading = heading_line.strip()
+        if not heading:
+            continue
+
+        tokens_saved = 0
+        tokens_match = _TOKENS_ANNOTATION_PATTERN.match(body)
+        if tokens_match:
+            tokens_saved = int(tokens_match.group(1).replace(",", ""))
+            body = body[tokens_match.end() :]
+
+        recs.append(
+            Recommendation(
+                target=RecommendationTarget.CONTEXT_FILE,
+                section=heading,
+                content=body.rstrip(),
+                estimated_tokens_saved=tokens_saved,
+            )
+        )
+    return recs
+
+
+def _merge_recommendations(
+    file_path: Path,
+    new_recommendations: list[Recommendation],
+) -> list[Recommendation]:
+    """Union new recommendations with prior ones whose section is not re-surfaced.
+
+    Sections produced by the current run take precedence over same-named
+    prior sections — the latest analysis is authoritative. Prior sections
+    whose headings do not reappear in the new run are carried forward so
+    a re-run doesn't silently drop accumulated learnings. To fully rebuild
+    the block, delete it manually and re-run.
+    """
+    if not file_path.exists():
+        return new_recommendations
+    prior = _parse_prior_recommendations(file_path.read_text())
+    if not prior:
+        return new_recommendations
+    new_sections = {r.section for r in new_recommendations}
+    carried = [p for p in prior if p.section not in new_sections]
+    return list(new_recommendations) + carried
+
+
+def _merge_into_file(file_path: Path, new_recommendations: list[Recommendation]) -> str:
+    """Merge new recommendations with any existing marker block and rebuild the file."""
+    merged = _merge_recommendations(file_path, new_recommendations)
+    section = _build_section(merged)
     if file_path.exists():
         existing = file_path.read_text()
         if _MARKER_START in existing:
@@ -119,8 +184,7 @@ class ClaudeCodeWriter(ContextWriter):
 
         if context_recs:
             claude_md_path = self._resolve_context_path(project)
-            section_content = _build_section(context_recs)
-            full_content = _merge_into_file(claude_md_path, section_content)
+            full_content = _merge_into_file(claude_md_path, context_recs)
             result.add(claude_md_path, full_content)
             if not dry_run:
                 claude_md_path.parent.mkdir(parents=True, exist_ok=True)
@@ -128,8 +192,7 @@ class ClaudeCodeWriter(ContextWriter):
 
         if memory_recs:
             memory_path = self._resolve_memory_path(project)
-            section_content = _build_section(memory_recs)
-            full_content = _merge_into_file(memory_path, section_content)
+            full_content = _merge_into_file(memory_path, memory_recs)
             result.add(memory_path, full_content)
             if not dry_run:
                 memory_path.parent.mkdir(parents=True, exist_ok=True)
@@ -174,8 +237,7 @@ class CodexWriter(ContextWriter):
 
         if context_recs:
             agents_md = project.context_file or (project.project_path / "AGENTS.md")
-            section_content = _build_section(context_recs)
-            full_content = _merge_into_file(agents_md, section_content)
+            full_content = _merge_into_file(agents_md, context_recs)
             result.add(agents_md, full_content)
             if not dry_run:
                 agents_md.parent.mkdir(parents=True, exist_ok=True)
@@ -183,8 +245,7 @@ class CodexWriter(ContextWriter):
 
         if memory_recs:
             instructions_md = project.memory_file or (project.data_path.parent / "instructions.md")
-            section_content = _build_section(memory_recs)
-            full_content = _merge_into_file(instructions_md, section_content)
+            full_content = _merge_into_file(instructions_md, memory_recs)
             result.add(instructions_md, full_content)
             if not dry_run:
                 instructions_md.parent.mkdir(parents=True, exist_ok=True)
@@ -214,8 +275,7 @@ class GeminiWriter(ContextWriter):
             return result
 
         gemini_md = project.context_file or (project.project_path / "GEMINI.md")
-        section_content = _build_section(recommendations)
-        full_content = _merge_into_file(gemini_md, section_content)
+        full_content = _merge_into_file(gemini_md, recommendations)
         result.add(gemini_md, full_content)
         if not dry_run:
             gemini_md.parent.mkdir(parents=True, exist_ok=True)
