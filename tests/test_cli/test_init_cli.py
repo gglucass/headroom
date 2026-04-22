@@ -226,7 +226,7 @@ def test_run_checked_treats_existing_install_as_success(monkeypatch) -> None:
 
 def test_command_string_and_matcher_on_windows(monkeypatch) -> None:
     init_cli, _ = _load_init_module(monkeypatch)
-    monkeypatch.setattr(init_cli.os, "name", "nt")
+    monkeypatch.setattr(init_cli, "os", SimpleNamespace(name="nt"))
     monkeypatch.setattr(init_cli.subprocess, "list2cmdline", lambda parts: "joined-command")
 
     assert init_cli._command_string(["headroom", "init"]) == "joined-command"
@@ -507,9 +507,9 @@ def test_apply_user_env_routes_by_platform(monkeypatch) -> None:
     )
     monkeypatch.setattr(init_cli, "_apply_unix_env_scope", lambda value: unix_calls.append(value))
 
-    monkeypatch.setattr(init_cli.os, "name", "nt")
+    monkeypatch.setattr(init_cli, "os", SimpleNamespace(name="nt"))
     init_cli._apply_user_env({"COPILOT_PROVIDER_TYPE": "openai"})
-    monkeypatch.setattr(init_cli.os, "name", "posix")
+    monkeypatch.setattr(init_cli, "os", SimpleNamespace(name="posix"))
     init_cli._apply_user_env({"COPILOT_PROVIDER_TYPE": "anthropic"})
 
     assert manifest.base_env == {}
@@ -695,7 +695,7 @@ def test_ensure_profile_running_returns_when_ready_or_on_exception(monkeypatch) 
 def test_init_codex_windows_warns_about_upstream_hook_limitation(monkeypatch) -> None:
     init_cli, _ = _load_init_module(monkeypatch)
     messages: list[str] = []
-    monkeypatch.setattr(init_cli.os, "name", "nt")
+    monkeypatch.setattr(init_cli, "os", SimpleNamespace(name="nt"))
     monkeypatch.setattr(init_cli, "_codex_scope_path", lambda global_scope: Path("config.toml"))
     monkeypatch.setattr(init_cli, "_codex_hooks_path", lambda global_scope: Path("hooks.json"))
     monkeypatch.setattr(init_cli, "_ensure_codex_provider", lambda path, port: None)
