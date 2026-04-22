@@ -87,6 +87,7 @@ from headroom.observability import (
     shutdown_headroom_tracing,
     shutdown_otel_metrics,
 )
+from headroom.pipeline import PipelineExtensionManager, PipelineStage
 from headroom.providers.anthropic import AnthropicProvider
 from headroom.providers.openai import OpenAIProvider
 
@@ -211,6 +212,11 @@ class HeadroomProxy(
     def __init__(self, config: ProxyConfig):
         self.config = config
         self.config.mode = normalize_proxy_mode(self.config.mode)
+        self.pipeline_extensions = PipelineExtensionManager(
+            hooks=config.hooks,
+            extensions=config.pipeline_extensions,
+            discover=config.discover_pipeline_extensions,
+        )
 
         # Reset per-instance API targets first so test runs and multiple app instances
         # do not leak class-level overrides across each other.
@@ -590,6 +596,17 @@ class HeadroomProxy(
             else:
                 self.code_graph_watcher = None
 
+        self.pipeline_extensions.emit(
+            PipelineStage.SETUP,
+            operation="proxy.setup",
+            metadata={
+                "mode": self.config.mode,
+                "optimize": self.config.optimize,
+                "backend": self.config.backend,
+                "memory_enabled": self.config.memory_enabled,
+            },
+        )
+
     def _get_compression_cache(self, session_id: str) -> CompressionCache:
         """Get or create a CompressionCache for a session."""
         if session_id not in self._compression_caches:
@@ -645,6 +662,11 @@ class HeadroomProxy(
 
     async def startup(self):
         """Initialize async resources."""
+        self.pipeline_extensions.emit(
+            PipelineStage.PRE_START,
+            operation="proxy.startup",
+            metadata={"port": self.config.port, "host": self.config.host},
+        )
         self.http_client = httpx.AsyncClient(
             timeout=httpx.Timeout(
                 connect=self.config.connect_timeout_seconds,
@@ -862,6 +884,16 @@ class HeadroomProxy(
             )
         else:
             logger.info("Anonymous telemetry: DISABLED")
+
+        self.pipeline_extensions.emit(
+            PipelineStage.POST_START,
+            operation="proxy.startup",
+            metadata={
+                "port": self.config.port,
+                "host": self.config.host,
+                "warmup": self.warmup.to_dict(),
+            },
+        )
 
     async def shutdown(self):
         """Cleanup async resources."""

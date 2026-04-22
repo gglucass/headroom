@@ -112,6 +112,17 @@ Bundles the [RTK](https://github.com/rtk-ai/rtk) binary for shell-output rewriti
 
 → [Architecture](https://headroom-docs.vercel.app/docs/architecture) · [CCR reversible compression](https://headroom-docs.vercel.app/docs/ccr) · [Kompress-base model card](https://huggingface.co/chopratejas/kompress-base)
 
+### Canonical pipeline lifecycle
+
+Headroom now exposes one stable request lifecycle across `compress()`, the SDK, and the proxy:
+
+`Setup` → `Pre-Start` → `Post-Start` → `Input Received` → `Input Cached` → `Input Routed` → `Input Compressed` → `Input Remembered` → `Pre-Send` → `Post-Send` → `Response Received`
+
+- **Transforms** still do the work: CacheAligner, ContentRouter, SmartCrusher, CodeCompressor, Kompress-base, IntelligentContext / RollingWindow.
+- **Pipeline extensions** observe or customize those lifecycle stages via `on_pipeline_event(...)`.
+- **Compression hooks** still work and now sit alongside the canonical lifecycle instead of being the only extension seam.
+- **Proxy extensions** remain the server/app integration seam for ASGI middleware, routes, and startup policy.
+
 ---
 
 ## Proof

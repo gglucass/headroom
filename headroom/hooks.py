@@ -1,10 +1,14 @@
-"""Compression Hooks — extension points for customizing compression behavior.
+"""Compression hooks and pipeline lifecycle events.
 
 Three hooks at well-defined pipeline stages:
 
 1. pre_compress: modify messages before compression (dedup, filter, inject)
 2. compute_biases: set per-message compression aggressiveness (position-aware, phase-aware)
 3. post_compress: observe results after compression (learning, analytics, logging)
+
+The canonical pipeline also emits lifecycle events through ``on_pipeline_event``.
+That gives extensions one stable contract across SDK, ``compress()``, and proxy
+request flow without replacing the existing compression hooks.
 
 Default implementation is no-op — OSS behavior unchanged. Override these
 in a subclass to customize (e.g., Headroom SaaS implements position-aware
@@ -29,6 +33,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any
+
+from .pipeline import PipelineEvent
 
 
 @dataclass
@@ -135,3 +141,11 @@ class CompressionHooks:
             event: Full compression event with before/after metrics.
         """
         pass
+
+    def on_pipeline_event(self, event: PipelineEvent) -> PipelineEvent | None:
+        """Observe canonical pipeline lifecycle events.
+
+        Override when the integration needs stable lifecycle notifications beyond
+        the three legacy compression-specific hooks.
+        """
+        return None

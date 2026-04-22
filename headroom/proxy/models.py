@@ -211,6 +211,8 @@ class ProxyConfig:
 
     # Compression Hooks
     hooks: Any = None
+    pipeline_extensions: list[Any] = field(default_factory=list)
+    discover_pipeline_extensions: bool = True
 
     # Subscription Window Tracking (Anthropic OAuth accounts)
     subscription_tracking_enabled: bool = True

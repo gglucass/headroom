@@ -20,6 +20,7 @@ from .config import (
     SimulationResult,
 )
 from .parser import parse_messages
+from .pipeline import PipelineExtensionManager, PipelineStage, summarize_routing_markers
 from .providers.base import Provider
 from .storage import create_storage
 from .tokenizer import Tokenizer
@@ -324,6 +325,10 @@ class HeadroomClient:
 
         # Initialize transform pipeline
         self._pipeline = TransformPipeline(self._config, provider=self._provider)
+        self._pipeline_extensions = PipelineExtensionManager(
+            extensions=self._config.pipeline_extensions,
+            discover=self._config.discover_pipeline_extensions,
+        )
 
         # Initialize cache optimizer
         self._cache_optimizer: BaseCacheOptimizer | None = None
@@ -357,6 +362,16 @@ class HeadroomClient:
         self.chat = type("Chat", (), {"completions": ChatCompletions(self)})()
         # Public API - Anthropic style
         self.messages = Messages(self)
+        self._pipeline_extensions.emit(
+            PipelineStage.SETUP,
+            operation="sdk.setup",
+            provider=self._provider.name.lower(),
+            metadata={
+                "default_mode": self._default_mode.value,
+                "cache_optimizer_enabled": enable_cache_optimizer,
+                "semantic_cache_enabled": enable_semantic_cache,
+            },
+        )
 
     def _get_tokenizer(self, model: str) -> Tokenizer:
         """Get tokenizer for model using provider."""
@@ -390,6 +405,18 @@ class HeadroomClient:
         request_id = generate_request_id()
         timestamp = datetime.now(timezone.utc).replace(tzinfo=None)
         mode = HeadroomMode(headroom_mode) if headroom_mode else self._default_mode
+
+        input_event = self._pipeline_extensions.emit(
+            PipelineStage.INPUT_RECEIVED,
+            operation="sdk.request",
+            request_id=request_id,
+            provider=self._provider.name.lower(),
+            model=model,
+            messages=messages,
+            metadata={"api_style": api_style, "stream": stream, "mode": mode.value},
+        )
+        if input_event.messages is not None:
+            messages = input_event.messages
 
         tokenizer = self._get_tokenizer(model)
 
@@ -432,6 +459,23 @@ class HeadroomClient:
             optimized_messages = result.messages
             tokens_after = result.tokens_after
             transforms_applied = result.transforms_applied
+
+            routing_markers = summarize_routing_markers(transforms_applied)
+            if routing_markers:
+                routed_event = self._pipeline_extensions.emit(
+                    PipelineStage.INPUT_ROUTED,
+                    operation="sdk.request",
+                    request_id=request_id,
+                    provider=self._provider.name.lower(),
+                    model=model,
+                    messages=optimized_messages,
+                    metadata={
+                        "routing_markers": routing_markers,
+                        "transforms_applied": transforms_applied,
+                    },
+                )
+                if routed_event.messages is not None:
+                    optimized_messages = routed_event.messages
 
             # Apply provider-specific cache optimization
             if self._cache_optimizer is not None or self._semantic_cache_layer is not None:
@@ -481,6 +525,23 @@ class HeadroomClient:
                     f"cache_optimizer:{t}" for t in (cache_result.transforms_applied or [])
                 )
 
+            compressed_event = self._pipeline_extensions.emit(
+                PipelineStage.INPUT_COMPRESSED,
+                operation="sdk.request",
+                request_id=request_id,
+                provider=self._provider.name.lower(),
+                model=model,
+                messages=optimized_messages,
+                metadata={
+                    "tokens_before": tokens_before,
+                    "tokens_after": tokens_after,
+                    "transforms_applied": transforms_applied,
+                },
+            )
+            if compressed_event.messages is not None:
+                optimized_messages = compressed_event.messages
+                tokens_after = tokenizer.count_messages(optimized_messages)
+
             # Recalculate prefix hash after optimization
             stable_prefix_hash = compute_prefix_hash(optimized_messages)
         else:
@@ -488,6 +549,20 @@ class HeadroomClient:
             optimized_messages = messages
             tokens_after = tokens_before
             transforms_applied = []
+
+        presend_event = self._pipeline_extensions.emit(
+            PipelineStage.PRE_SEND,
+            operation="sdk.request",
+            request_id=request_id,
+            provider=self._provider.name.lower(),
+            model=model,
+            messages=optimized_messages,
+            metadata={"api_style": api_style, "stream": stream},
+        )
+        if presend_event.messages is not None:
+            optimized_messages = presend_event.messages
+            tokens_after = tokenizer.count_messages(optimized_messages)
+            stable_prefix_hash = compute_prefix_hash(optimized_messages)
 
         # Create metrics
         metrics = RequestMetrics(
@@ -530,7 +605,7 @@ class HeadroomClient:
         # Call underlying client based on API style
         try:
             if api_style == "anthropic":
-                return self._call_anthropic(
+                response = self._call_anthropic(
                     model=model,
                     messages=optimized_messages,
                     stream=stream,
@@ -538,13 +613,34 @@ class HeadroomClient:
                     **kwargs,
                 )
             else:
-                return self._call_openai(
+                response = self._call_openai(
                     model=model,
                     messages=optimized_messages,
                     stream=stream,
                     metrics=metrics,
                     **kwargs,
                 )
+
+            self._pipeline_extensions.emit(
+                PipelineStage.POST_SEND,
+                operation="sdk.request",
+                request_id=request_id,
+                provider=self._provider.name.lower(),
+                model=model,
+                messages=optimized_messages,
+                response=response,
+                metadata={"api_style": api_style, "stream": stream},
+            )
+            self._pipeline_extensions.emit(
+                PipelineStage.RESPONSE_RECEIVED,
+                operation="sdk.request",
+                request_id=request_id,
+                provider=self._provider.name.lower(),
+                model=model,
+                response=response,
+                metadata={"api_style": api_style, "stream": stream},
+            )
+            return response
 
         except Exception as e:
             metrics.error = str(e)

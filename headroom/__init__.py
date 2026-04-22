@@ -175,6 +175,11 @@ __all__ = [
     "CompressionHooks",
     "CompressContext",
     "CompressEvent",
+    # Canonical pipeline
+    "PipelineStage",
+    "PipelineEvent",
+    "PipelineExtensionManager",
+    "CANONICAL_PIPELINE_STAGES",
     # Shared context for multi-agent workflows
     "SharedContext",
 ]
@@ -268,6 +273,11 @@ _LAZY_EXPORTS: dict[str, tuple[str, str]] = {
     "CompressionHooks": ("headroom.hooks", "CompressionHooks"),
     "CompressContext": ("headroom.hooks", "CompressContext"),
     "CompressEvent": ("headroom.hooks", "CompressEvent"),
+    # Canonical pipeline
+    "PipelineStage": ("headroom.pipeline", "PipelineStage"),
+    "PipelineEvent": ("headroom.pipeline", "PipelineEvent"),
+    "PipelineExtensionManager": ("headroom.pipeline", "PipelineExtensionManager"),
+    "CANONICAL_PIPELINE_STAGES": ("headroom.pipeline", "CANONICAL_PIPELINE_STAGES"),
     # Shared context
     "SharedContext": ("headroom.shared_context", "SharedContext"),
 }
