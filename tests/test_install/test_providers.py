@@ -1,17 +1,15 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 from headroom.install.models import DeploymentManifest, ManagedMutation
-from headroom.install.providers import (
-    _apply_claude_provider_scope,
-    _apply_codex_provider_scope,
-    _apply_windows_env_scope,
-    _remove_windows_env_scope,
-    _revert_claude_provider_scope,
-    _revert_codex_provider_scope,
-)
+from headroom.install.providers import _apply_windows_env_scope, _remove_windows_env_scope
+from headroom.providers.claude.install import apply_provider_scope as apply_claude_provider_scope
+from headroom.providers.claude.install import revert_provider_scope as revert_claude_provider_scope
+from headroom.providers.codex.install import apply_provider_scope as apply_codex_provider_scope
+from headroom.providers.codex.install import revert_provider_scope as revert_codex_provider_scope
 
 
 def _manifest(tmp_path: Path) -> DeploymentManifest:
@@ -39,15 +37,18 @@ def test_apply_and_revert_claude_provider_scope(monkeypatch, tmp_path: Path) -> 
     settings_path.write_text(
         json.dumps({"env": {"ANTHROPIC_API_KEY": "keep", "ANTHROPIC_BASE_URL": "https://old"}})
     )
-    monkeypatch.setattr("headroom.install.providers.claude_settings_path", lambda: settings_path)
+    monkeypatch.setattr(
+        "headroom.providers.claude.install.claude_settings_path", lambda: settings_path
+    )
     manifest = _manifest(tmp_path)
 
-    mutation = _apply_claude_provider_scope(manifest)
+    mutation = apply_claude_provider_scope(manifest)
     payload = json.loads(settings_path.read_text())
     assert payload["env"]["ANTHROPIC_BASE_URL"] == "http://127.0.0.1:8787"
     assert payload["env"]["ANTHROPIC_API_KEY"] == "keep"
 
-    _revert_claude_provider_scope(mutation, manifest.tool_envs["claude"])
+    assert mutation is not None
+    revert_claude_provider_scope(mutation, manifest)
     reverted = json.loads(settings_path.read_text())
     assert reverted["env"]["ANTHROPIC_BASE_URL"] == "https://old"
     assert reverted["env"]["ANTHROPIC_API_KEY"] == "keep"
@@ -56,15 +57,16 @@ def test_apply_and_revert_claude_provider_scope(monkeypatch, tmp_path: Path) -> 
 def test_apply_and_revert_codex_provider_scope(monkeypatch, tmp_path: Path) -> None:
     config_path = tmp_path / "config.toml"
     config_path.write_text('model = "gpt-4o"\n')
-    monkeypatch.setattr("headroom.install.providers.codex_config_path", lambda: config_path)
+    monkeypatch.setattr("headroom.providers.codex.install.codex_config_path", lambda: config_path)
     manifest = _manifest(tmp_path)
 
-    mutation = _apply_codex_provider_scope(manifest)
+    mutation = apply_codex_provider_scope(manifest)
     content = config_path.read_text()
     assert 'model_provider = "headroom"' in content
     assert 'base_url = "http://127.0.0.1:8787/v1"' in content
 
-    _revert_codex_provider_scope(mutation)
+    assert mutation is not None
+    revert_codex_provider_scope(mutation, manifest)
     reverted = config_path.read_text()
     assert 'model_provider = "headroom"' not in reverted
     assert reverted.strip() == 'model = "gpt-4o"'
@@ -72,25 +74,27 @@ def test_apply_and_revert_codex_provider_scope(monkeypatch, tmp_path: Path) -> N
 
 def test_apply_openclaw_provider_scope_uses_manifest_port(monkeypatch, tmp_path: Path) -> None:
     recorded: list[list[str]] = []
-    monkeypatch.setattr("headroom.install.providers.shutil_which", lambda name: "openclaw")
+    monkeypatch.setattr("headroom.providers.openclaw.install.shutil_which", lambda name: "openclaw")
     monkeypatch.setattr(
-        "headroom.install.providers.resolve_headroom_command",
+        "headroom.providers.openclaw.install.resolve_headroom_command",
         lambda: ["headroom"],
     )
     monkeypatch.setattr(
-        "headroom.install.providers._invoke_openclaw",
+        "headroom.providers.openclaw.install._invoke_openclaw",
         lambda command: recorded.append(command),
     )
     monkeypatch.setattr(
-        "headroom.install.providers.openclaw_config_path",
+        "headroom.providers.openclaw.install.openclaw_config_path",
         lambda: tmp_path / "openclaw.json",
     )
     manifest = _manifest(tmp_path)
     manifest.port = 9999
 
-    from headroom.install.providers import _apply_openclaw_provider_scope
+    from headroom.providers.openclaw.install import (
+        apply_provider_scope as apply_openclaw_provider_scope,
+    )
 
-    _apply_openclaw_provider_scope(manifest)
+    apply_openclaw_provider_scope(manifest)
 
     assert recorded == [["headroom", "wrap", "openclaw", "--no-auto-start", "--proxy-port", "9999"]]
 
@@ -165,11 +169,17 @@ def test_apply_mutations_runs_openclaw_for_user_scope(monkeypatch, tmp_path: Pat
     manifest.base_env = {"HEADROOM_PORT": "8787"}
     manifest.tool_envs = {}
 
-    monkeypatch.setattr("headroom.install.providers.os.name", "posix")
-    monkeypatch.setattr("headroom.install.providers._apply_unix_env_scope", lambda deployment: [])
+    if os.name == "nt":
+        monkeypatch.setattr(
+            "headroom.install.providers._apply_windows_env_scope", lambda deployment: []
+        )
+    else:
+        monkeypatch.setattr(
+            "headroom.install.providers._apply_unix_env_scope", lambda deployment: []
+        )
     monkeypatch.setattr(
-        "headroom.install.providers._apply_openclaw_provider_scope",
-        lambda deployment: ManagedMutation(target="openclaw", kind="openclaw-wrap"),
+        "headroom.install.providers.apply_provider_scope_mutations",
+        lambda deployment: [ManagedMutation(target="openclaw", kind="openclaw-wrap")],
     )
 
     from headroom.install.providers import apply_mutations

@@ -8,6 +8,7 @@ from collections.abc import Iterable
 import click
 
 from headroom import paths as _paths
+from headroom.providers.install_registry import build_install_target_envs
 
 from .models import (
     ConfigScope,
@@ -95,44 +96,9 @@ def resolve_targets(
     return normalized
 
 
-def _copilot_env(port: int, backend: str) -> dict[str, str]:
-    if backend == "anthropic":
-        return {
-            "COPILOT_PROVIDER_TYPE": "anthropic",
-            "COPILOT_PROVIDER_BASE_URL": f"http://127.0.0.1:{port}",
-        }
-    return {
-        "COPILOT_PROVIDER_TYPE": "openai",
-        "COPILOT_PROVIDER_BASE_URL": f"http://127.0.0.1:{port}/v1",
-        "COPILOT_PROVIDER_WIRE_API": "completions",
-    }
-
-
 def build_tool_envs(port: int, backend: str, targets: list[str]) -> dict[str, dict[str, str]]:
     """Build per-target environment variables for the selected tools."""
-
-    target_envs: dict[str, dict[str, str]] = {}
-    if ToolTarget.CLAUDE.value in targets:
-        target_envs[ToolTarget.CLAUDE.value] = {
-            "ANTHROPIC_BASE_URL": f"http://127.0.0.1:{port}",
-        }
-    if ToolTarget.CODEX.value in targets:
-        target_envs[ToolTarget.CODEX.value] = {
-            "OPENAI_BASE_URL": f"http://127.0.0.1:{port}/v1",
-        }
-    if ToolTarget.AIDER.value in targets:
-        target_envs[ToolTarget.AIDER.value] = {
-            "OPENAI_API_BASE": f"http://127.0.0.1:{port}/v1",
-            "ANTHROPIC_BASE_URL": f"http://127.0.0.1:{port}",
-        }
-    if ToolTarget.COPILOT.value in targets:
-        target_envs[ToolTarget.COPILOT.value] = _copilot_env(port, backend)
-    if ToolTarget.CURSOR.value in targets:
-        target_envs[ToolTarget.CURSOR.value] = {
-            "OPENAI_BASE_URL": f"http://127.0.0.1:{port}/v1",
-            "ANTHROPIC_BASE_URL": f"http://127.0.0.1:{port}",
-        }
-    return target_envs
+    return build_install_target_envs(port, backend, targets)
 
 
 def build_manifest(

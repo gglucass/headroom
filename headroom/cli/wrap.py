@@ -23,8 +23,6 @@ import socket
 import subprocess
 import sys
 import time
-import urllib.error
-import urllib.request
 from pathlib import Path
 from typing import Any, cast
 
@@ -38,19 +36,49 @@ import click
 
 from headroom.copilot_auth import DEFAULT_API_URL as COPILOT_API_URL
 from headroom.copilot_auth import has_oauth_auth, resolve_client_bearer_token
+from headroom.providers.aider import build_launch_env as _build_aider_launch_env
+from headroom.providers.claude import proxy_base_url as _claude_proxy_base_url
+from headroom.providers.codex import build_launch_env as _build_codex_launch_env
+from headroom.providers.copilot import (
+    build_launch_env as _build_copilot_launch_env,
+)
+from headroom.providers.copilot import (
+    detect_running_proxy_backend as _copilot_detect_running_proxy_backend,
+)
+from headroom.providers.copilot import (
+    model_configured as _copilot_model_configured_impl,
+)
+from headroom.providers.copilot import (
+    provider_key_source as _copilot_provider_key_source,
+)
+from headroom.providers.copilot import (
+    query_proxy_config as _copilot_query_proxy_config,
+)
+from headroom.providers.copilot import (
+    resolve_provider_type as _copilot_resolve_provider_type,
+)
+from headroom.providers.copilot import (
+    validate_configuration as _validate_copilot_configuration,
+)
+from headroom.providers.cursor import render_setup_lines as _render_cursor_setup_lines
+from headroom.providers.openclaw import (
+    build_plugin_entry as _build_openclaw_plugin_entry_impl,
+)
+from headroom.providers.openclaw import (
+    build_unwrap_entry as _build_openclaw_unwrap_entry_impl,
+)
+from headroom.providers.openclaw import (
+    decode_entry_json as _decode_openclaw_entry_json_impl,
+)
+from headroom.providers.openclaw import (
+    normalize_gateway_provider_ids as _normalize_openclaw_gateway_provider_ids_impl,
+)
 
 from .main import main
 
 
 def _live_wrap_module() -> Any:
-    """Return the current live wrap module instance.
-
-    CLI tests sometimes reload `headroom.cli.wrap` while still invoking Click
-    command callbacks that were registered from an older module instance. By
-    resolving helper calls through `sys.modules[__name__]`, patched helpers on
-    the live module continue to affect those callbacks.
-    """
-
+    """Return the current live wrap module instance."""
     return cast(Any, sys.modules[__name__])
 
 
@@ -576,11 +604,7 @@ def _inject_memory_agents_md(file_path: Path) -> bool:
 
 def _resolve_copilot_provider_type(backend: str | None, provider_type: str) -> str:
     """Resolve Copilot BYOK provider type for the current proxy backend."""
-    if provider_type != "auto":
-        return provider_type
-
-    effective_backend = backend or os.environ.get("HEADROOM_BACKEND") or "anthropic"
-    return "anthropic" if effective_backend == "anthropic" else "openai"
+    return _copilot_resolve_provider_type(backend, provider_type)
 
 
 def _query_proxy_config(port: int) -> dict[str, Any] | None:
@@ -590,26 +614,12 @@ def _query_proxy_config(port: int) -> dict[str, Any] | None:
     memory, learn, code_graph, pid.  Returns None if unreachable or the
     response lacks a config block.
     """
-    url = f"http://127.0.0.1:{port}/health"
-    try:
-        with urllib.request.urlopen(url, timeout=2) as response:
-            payload = json.loads(response.read().decode("utf-8"))
-    except (OSError, urllib.error.URLError, ValueError, json.JSONDecodeError):
-        return None
-
-    config = payload.get("config")
-    if not isinstance(config, dict):
-        return None
-    return config
+    return _copilot_query_proxy_config(port)
 
 
 def _detect_running_proxy_backend(port: int) -> str | None:
     """Read the backend of an already-running proxy from its health endpoint."""
-    config = _query_proxy_config(port)
-    if config is None:
-        return None
-    backend = config.get("backend")
-    return backend if isinstance(backend, str) else None
+    return _copilot_detect_running_proxy_backend(port)
 
 
 def _kill_proxy_by_pid(pid: int, port: int) -> bool:
@@ -663,8 +673,7 @@ def _recover_persistent_proxy(port: int) -> bool:
     from headroom.install.runtime import start_detached_agent, start_persistent_docker, wait_ready
     from headroom.install.supervisors import start_supervisor
 
-    helpers = _live_wrap_module()
-    manifest = helpers._find_persistent_manifest(port)
+    manifest = _find_persistent_manifest(port)
     if manifest is None:
         return False
 
@@ -702,16 +711,7 @@ def _recover_persistent_proxy(port: int) -> bool:
 
 def _copilot_model_configured(copilot_args: tuple[str, ...], env: dict[str, str]) -> bool:
     """Return True when Copilot BYOK model selection is configured."""
-    if env.get("COPILOT_MODEL") or env.get("COPILOT_PROVIDER_MODEL_ID"):
-        return True
-
-    for idx, arg in enumerate(copilot_args):
-        if arg == "--model" and idx + 1 < len(copilot_args):
-            return True
-        if arg.startswith("--model="):
-            return True
-
-    return False
+    return _copilot_model_configured_impl(copilot_args, env)
 
 
 def _should_use_copilot_oauth(
@@ -720,8 +720,7 @@ def _should_use_copilot_oauth(
     provider_type: str,
     env: dict[str, str],
 ) -> bool:
-    """Prefer existing Copilot auth when the requested routing supports it."""
-
+    """Prefer a reusable Copilot OAuth session when the requested routing supports it."""
     if env.get("COPILOT_PROVIDER_API_KEY") or env.get("COPILOT_PROVIDER_BEARER_TOKEN"):
         return False
     if provider_type == "anthropic":
@@ -820,7 +819,7 @@ def _ensure_proxy(
         try:
             proc = cast(
                 subprocess.Popen[Any],
-                helpers._start_proxy(
+                _live_wrap_module()._start_proxy(
                     port,
                     learn=learn,
                     memory=memory,
@@ -992,20 +991,7 @@ def _resolve_openclaw_extensions_dir(openclaw_bin: str) -> Path:
 
 def _normalize_openclaw_gateway_provider_ids(provider_ids: tuple[str, ...] | None) -> list[str]:
     """Normalize configured OpenClaw provider ids, defaulting to openai-codex."""
-    values = provider_ids or ()
-    seen: set[str] = set()
-    normalized: list[str] = []
-
-    for entry in values:
-        provider_id = entry.strip()
-        if not provider_id or provider_id in seen:
-            continue
-        seen.add(provider_id)
-        normalized.append(provider_id)
-
-    if normalized:
-        return normalized
-    return ["openai-codex"]
+    return _normalize_openclaw_gateway_provider_ids_impl(provider_ids)
 
 
 def _read_openclaw_config_value(openclaw_bin: str, path: str) -> Any | None:
@@ -1032,13 +1018,7 @@ def _read_openclaw_config_value(openclaw_bin: str, path: str) -> Any | None:
 
 def _decode_openclaw_entry_json(raw_value: str | None) -> Any | None:
     """Decode a JSON payload captured from `openclaw config get` when available."""
-    if not raw_value:
-        return None
-
-    try:
-        return json.loads(raw_value)
-    except json.JSONDecodeError:
-        return raw_value
+    return _decode_openclaw_entry_json_impl(raw_value)
 
 
 def _build_openclaw_plugin_entry(
@@ -1052,49 +1032,20 @@ def _build_openclaw_plugin_entry(
     enabled: bool,
 ) -> dict[str, object]:
     """Merge managed Headroom plugin settings with any existing entry payload."""
-    base_entry = existing_entry if isinstance(existing_entry, dict) else {}
-    existing_config = base_entry.get("config")
-    next_config = dict(existing_config) if isinstance(existing_config, dict) else {}
-
-    next_config["proxyPort"] = proxy_port
-    next_config["autoStart"] = not no_auto_start
-    next_config["startupTimeoutMs"] = startup_timeout_ms
-    next_config["gatewayProviderIds"] = _normalize_openclaw_gateway_provider_ids(
-        gateway_provider_ids
+    return _build_openclaw_plugin_entry_impl(
+        existing_entry=existing_entry,
+        proxy_port=proxy_port,
+        startup_timeout_ms=startup_timeout_ms,
+        python_path=python_path,
+        no_auto_start=no_auto_start,
+        gateway_provider_ids=gateway_provider_ids,
+        enabled=enabled,
     )
-
-    if python_path:
-        next_config["pythonPath"] = python_path
-    else:
-        next_config.pop("pythonPath", None)
-
-    return {
-        **base_entry,
-        "enabled": enabled,
-        "config": next_config,
-    }
 
 
 def _build_openclaw_unwrap_entry(existing_entry: Any) -> dict[str, object]:
     """Disable the managed plugin while preserving unrelated user config."""
-    base_entry = existing_entry if isinstance(existing_entry, dict) else {}
-    existing_config = {}
-    if isinstance(existing_entry, dict) and isinstance(existing_entry.get("config"), dict):
-        existing_config = {
-            key: value
-            for key, value in existing_entry["config"].items()
-            if key
-            not in {
-                "gatewayProviderIds",
-                "proxyUrl",
-                "proxyPort",
-                "autoStart",
-                "startupTimeoutMs",
-                "pythonPath",
-            }
-        }
-
-    return {**base_entry, "enabled": False, "config": existing_config}
+    return _build_openclaw_unwrap_entry_impl(existing_entry)
 
 
 def _write_openclaw_plugin_entry(openclaw_bin: str, entry: dict[str, object]) -> None:
@@ -1256,11 +1207,9 @@ def claude(
         headroom wrap claude --code-graph        # With code graph intelligence
         headroom wrap claude --no-rtk           # Skip rtk (proxy only)
     """
-    helpers = _live_wrap_module()
-
     if prepare_only:
         if not no_rtk:
-            helpers._prepare_wrap_rtk(verbose=verbose, label="Claude")
+            _prepare_wrap_rtk(verbose=verbose, label="Claude")
         return
 
     claude_bin = shutil.which("claude")
@@ -1271,7 +1220,7 @@ def claude(
 
     # Setup rtk before launching (Claude-specific)
     proxy_holder: list[subprocess.Popen | None] = [None]
-    cleanup = helpers._make_cleanup(proxy_holder, port)
+    cleanup = _make_cleanup(proxy_holder, port)
     signal.signal(signal.SIGINT, cleanup)
     signal.signal(signal.SIGTERM, cleanup)
 
@@ -1324,34 +1273,29 @@ def claude(
         click.echo("  ╚═══════════════════════════════════════════════╝")
         click.echo()
 
-        proxy_holder[0] = helpers._ensure_proxy(
-            port,
-            no_proxy,
-            learn=learn,
-            memory=memory,
-            agent_type="claude",
-            code_graph=code_graph,
+        proxy_holder[0] = _ensure_proxy(
+            port, no_proxy, learn=learn, memory=memory, agent_type="claude", code_graph=code_graph
         )
 
         if not no_rtk:
             click.echo("  Setting up rtk...")
-            helpers._setup_rtk(verbose=verbose)
+            _setup_rtk(verbose=verbose)
         elif verbose:
             click.echo("  Skipping rtk (--no-rtk)")
 
         if code_graph:
-            helpers._setup_code_graph(verbose=verbose)
+            _setup_code_graph(verbose=verbose)
 
         click.echo()
         click.echo("  Launching Claude Code (API routed through Headroom)...")
-        click.echo(f"  ANTHROPIC_BASE_URL=http://127.0.0.1:{port}")
+        click.echo(f"  ANTHROPIC_BASE_URL={_claude_proxy_base_url(port)}")
         if claude_args:
             click.echo(f"  Extra args: {' '.join(claude_args)}")
-        helpers._print_telemetry_notice()
+        _print_telemetry_notice()
         click.echo()
 
         env = os.environ.copy()
-        env["ANTHROPIC_BASE_URL"] = f"http://127.0.0.1:{port}"
+        env["ANTHROPIC_BASE_URL"] = _claude_proxy_base_url(port)
 
         result = subprocess.run([claude_bin, *claude_args], env=env)
         raise SystemExit(result.returncode)
@@ -1455,14 +1399,11 @@ def copilot(
         effective_backend = running_backend or effective_backend
 
     effective_provider_type = _resolve_copilot_provider_type(effective_backend, provider_type)
-    if effective_provider_type == "anthropic" and wire_api is not None:
-        raise click.ClickException(
-            "--wire-api is only valid when Copilot is using the openai provider type."
-        )
-    if wire_api == "responses" and effective_backend not in (None, "anthropic"):
-        raise click.ClickException(
-            "--wire-api responses is not supported with translated backends; use completions."
-        )
+    _validate_copilot_configuration(
+        provider_type=effective_provider_type,
+        wire_api=wire_api,
+        backend=effective_backend,
+    )
 
     if not no_rtk:
         click.echo("  Setting up rtk for Copilot...")
@@ -1472,9 +1413,7 @@ def copilot(
             _inject_rtk_instructions(copilot_instructions, verbose=verbose)
 
     env = os.environ.copy()
-    env.pop("COPILOT_PROVIDER_WIRE_API", None)
     openai_api_url: str | None = None
-
     if _should_use_copilot_oauth(
         backend=effective_backend,
         provider_type=provider_type,
@@ -1486,67 +1425,45 @@ def copilot(
                 "GitHub Copilot auth was detected but no reusable bearer token could be resolved."
             )
 
+        effective_wire_api = wire_api or "completions"
         env["COPILOT_PROVIDER_TYPE"] = "openai"
         env["COPILOT_PROVIDER_BASE_URL"] = f"http://127.0.0.1:{port}/v1"
-        env["COPILOT_PROVIDER_WIRE_API"] = wire_api or "completions"
+        env["COPILOT_PROVIDER_WIRE_API"] = effective_wire_api
         env["COPILOT_PROVIDER_BEARER_TOKEN"] = client_bearer
         env.pop("COPILOT_PROVIDER_API_KEY", None)
         env_vars_display = [
             "COPILOT_PROVIDER_TYPE=openai",
             f"COPILOT_PROVIDER_BASE_URL=http://127.0.0.1:{port}/v1",
-            f"COPILOT_PROVIDER_WIRE_API={env['COPILOT_PROVIDER_WIRE_API']}",
+            f"COPILOT_PROVIDER_WIRE_API={effective_wire_api}",
             "COPILOT_AUTH_MODE=github-oauth",
         ]
         openai_api_url = COPILOT_API_URL
     else:
-        env["COPILOT_PROVIDER_TYPE"] = effective_provider_type
-
-        # Copilot BYOK requires COPILOT_PROVIDER_API_KEY — propagate from the
-        # user's existing provider key so they don't have to set it twice.
-        if not env.get("COPILOT_PROVIDER_API_KEY"):
-            if effective_provider_type == "anthropic":
-                _key = env.get("ANTHROPIC_API_KEY", "")
-            else:
-                _key = env.get("OPENAI_API_KEY", "")
-            if _key:
-                env["COPILOT_PROVIDER_API_KEY"] = _key
-
-        if effective_provider_type == "anthropic":
-            env["COPILOT_PROVIDER_BASE_URL"] = f"http://127.0.0.1:{port}"
-            env_vars_display = [
-                "COPILOT_PROVIDER_TYPE=anthropic",
-                f"COPILOT_PROVIDER_BASE_URL=http://127.0.0.1:{port}",
-            ]
-        else:
-            effective_wire_api = wire_api or "completions"
-            env["COPILOT_PROVIDER_BASE_URL"] = f"http://127.0.0.1:{port}/v1"
-            env["COPILOT_PROVIDER_WIRE_API"] = effective_wire_api
-            env_vars_display = [
-                "COPILOT_PROVIDER_TYPE=openai",
-                f"COPILOT_PROVIDER_BASE_URL=http://127.0.0.1:{port}/v1",
-                f"COPILOT_PROVIDER_WIRE_API={effective_wire_api}",
-            ]
+        env, env_vars_display = _build_copilot_launch_env(
+            port=port,
+            provider_type=effective_provider_type,
+            wire_api=wire_api,
+            environ=env,
+        )
 
         if not env.get("COPILOT_PROVIDER_API_KEY"):
-            src = (
-                "ANTHROPIC_API_KEY" if effective_provider_type == "anthropic" else "OPENAI_API_KEY"
-            )
+            src = _copilot_provider_key_source(effective_provider_type)
             click.echo(
                 f"\n  Error: Copilot BYOK mode requires a provider API key.\n"
-                f"  No reusable GitHub Copilot OAuth session was found, so Headroom fell back to\n"
-                f"  Copilot's BYOK provider mode. That mode bypasses GitHub's Copilot API and\n"
-                f"  routes requests directly to the model provider through the Headroom proxy.\n\n"
+                f"  `headroom wrap copilot` uses Copilot's BYOK mode, which bypasses GitHub's\n"
+                f"  Copilot API and routes requests directly to the model provider through the\n"
+                f"  Headroom proxy. A GitHub Copilot subscription alone is not sufficient.\n\n"
                 f"  Set one of:\n"
                 f"    export {src}=sk-...          # recommended\n"
                 f"    export COPILOT_PROVIDER_API_KEY=sk-...  # also works\n"
             )
             raise SystemExit(1)
 
-        if not _copilot_model_configured(copilot_args, env):
-            click.echo(
-                "  Note: Copilot BYOK requires a model. Pass `--model <name>` "
-                "or set `COPILOT_MODEL` / `COPILOT_PROVIDER_MODEL_ID`."
-            )
+    if not _copilot_model_configured(copilot_args, env):
+        click.echo(
+            "  Note: Copilot BYOK requires a model. Pass `--model <name>` "
+            "or set `COPILOT_MODEL` / `COPILOT_PROVIDER_MODEL_ID`."
+        )
 
     _launch_tool(
         binary=copilot_bin,
@@ -1695,8 +1612,7 @@ def codex(
         click.echo("Install Codex CLI: npm install -g @openai/codex")
         raise SystemExit(1)
 
-    env = os.environ.copy()
-    env["OPENAI_BASE_URL"] = f"http://127.0.0.1:{port}/v1"
+    env, env_vars_display = _build_codex_launch_env(port, os.environ)
 
     # Inject Headroom provider into Codex config so WebSocket traffic also
     # routes through the proxy.  Codex ignores OPENAI_BASE_URL for its WS
@@ -1718,7 +1634,7 @@ def codex(
         port=port,
         no_proxy=no_proxy,
         tool_label="CODEX",
-        env_vars_display=[f"OPENAI_BASE_URL=http://127.0.0.1:{port}/v1"],
+        env_vars_display=env_vars_display,
         learn=learn,
         memory=memory,
         agent_type="codex",
@@ -1800,9 +1716,7 @@ def aider(
         click.echo("Install aider: pip install aider-chat")
         raise SystemExit(1)
 
-    env = os.environ.copy()
-    env["OPENAI_API_BASE"] = f"http://127.0.0.1:{port}/v1"
-    env["ANTHROPIC_BASE_URL"] = f"http://127.0.0.1:{port}"
+    env, env_vars_display = _build_aider_launch_env(port, os.environ)
 
     _launch_tool(
         binary=aider_bin,
@@ -1811,10 +1725,7 @@ def aider(
         port=port,
         no_proxy=no_proxy,
         tool_label="AIDER",
-        env_vars_display=[
-            f"OPENAI_API_BASE=http://127.0.0.1:{port}/v1",
-            f"ANTHROPIC_BASE_URL=http://127.0.0.1:{port}",
-        ],
+        env_vars_display=env_vars_display,
         learn=learn,
         memory=memory,
         agent_type="aider",
@@ -1893,19 +1804,8 @@ def cursor(
         )
 
         click.echo()
-        click.echo("  Headroom proxy is running. Configure Cursor:")
-        click.echo()
-        click.echo("  For OpenAI models:")
-        click.echo(f"    Base URL:  http://127.0.0.1:{port}/v1")
-        click.echo("    API Key:   your-openai-api-key")
-        click.echo()
-        click.echo("  For Anthropic models:")
-        click.echo(f"    Base URL:  http://127.0.0.1:{port}")
-        click.echo("    API Key:   your-anthropic-api-key")
-        click.echo()
-        click.echo("  In Cursor:")
-        click.echo("    Settings > Models > OpenAI API Key > Override OpenAI Base URL")
-        click.echo(f"    Set to: http://127.0.0.1:{port}/v1")
+        for line in _render_cursor_setup_lines(port):
+            click.echo(line)
         if not no_rtk:
             click.echo()
             click.echo("  rtk instructions injected into .cursorrules")

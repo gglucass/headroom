@@ -62,6 +62,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .observability import get_otel_metrics
+from .pipeline import PipelineExtensionManager, PipelineStage, summarize_routing_markers
 from .utils import extract_user_query as _extract_user_query
 
 logger = logging.getLogger(__name__)
@@ -205,6 +206,7 @@ def compress(
             setattr(cfg, key, value)
 
     pipeline = _get_pipeline()
+    pipeline_extensions = PipelineExtensionManager(hooks=hooks, discover=False)
 
     try:
         # Compute biases from hooks if provided
@@ -215,6 +217,15 @@ def compress(
             ctx = CompressContext(model=model)
             messages = hooks.pre_compress(messages, ctx)
             biases = hooks.compute_biases(messages, ctx)
+
+        received_event = pipeline_extensions.emit(
+            PipelineStage.INPUT_RECEIVED,
+            operation="compress",
+            model=model,
+            messages=messages,
+        )
+        if received_event.messages is not None:
+            messages = received_event.messages
 
         # Extract user query from messages so transforms can score by
         # relevance.  Without this, SmartCrusher selects items by statistics
@@ -239,6 +250,37 @@ def compress(
 
         tokens_before = result.tokens_before
         tokens_after = result.tokens_after
+        compressed_messages = result.messages
+
+        routing_markers = summarize_routing_markers(result.transforms_applied)
+        if routing_markers:
+            routed_event = pipeline_extensions.emit(
+                PipelineStage.INPUT_ROUTED,
+                operation="compress",
+                model=model,
+                messages=compressed_messages,
+                metadata={
+                    "routing_markers": routing_markers,
+                    "transforms_applied": result.transforms_applied,
+                },
+            )
+            if routed_event.messages is not None:
+                compressed_messages = routed_event.messages
+
+        compressed_event = pipeline_extensions.emit(
+            PipelineStage.INPUT_COMPRESSED,
+            operation="compress",
+            model=model,
+            messages=compressed_messages,
+            metadata={
+                "tokens_before": tokens_before,
+                "tokens_after": tokens_after,
+                "transforms_applied": result.transforms_applied,
+            },
+        )
+        if compressed_event.messages is not None:
+            compressed_messages = compressed_event.messages
+
         tokens_saved = tokens_before - tokens_after
         ratio = tokens_saved / tokens_before if tokens_before > 0 else 0.0
 
@@ -258,7 +300,7 @@ def compress(
             )
 
         return CompressResult(
-            messages=result.messages,
+            messages=compressed_messages,
             tokens_before=tokens_before,
             tokens_after=tokens_after,
             tokens_saved=tokens_saved,

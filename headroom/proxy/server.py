@@ -44,7 +44,7 @@ import httpx
 
 try:
     import uvicorn
-    from fastapi import Depends, FastAPI, HTTPException, Request, Response, WebSocket
+    from fastapi import Depends, FastAPI, HTTPException, Request, Response
     from fastapi.middleware.cors import CORSMiddleware
     from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 
@@ -87,8 +87,17 @@ from headroom.observability import (
     shutdown_headroom_tracing,
     shutdown_otel_metrics,
 )
-from headroom.providers.anthropic import AnthropicProvider
-from headroom.providers.openai import OpenAIProvider
+from headroom.pipeline import PipelineExtensionManager, PipelineStage
+from headroom.providers.proxy_routes import register_provider_routes
+from headroom.providers.registry import (
+    DEFAULT_ANTHROPIC_API_URL,
+    DEFAULT_CLOUDCODE_API_URL,
+    DEFAULT_GEMINI_API_URL,
+    DEFAULT_OPENAI_API_URL,
+    build_proxy_provider_runtime,
+    create_proxy_backend,
+    format_backend_status,
+)
 
 # =============================================================================
 # Extracted modules (re-exported for backward compatibility)
@@ -154,6 +163,9 @@ from headroom.transforms import (
     is_tree_sitter_available,
 )
 
+AnyLLMBackend: Any = None
+LiteLLMBackend: Any = None
+
 fcntl: Any = None
 try:
     import fcntl as _fcntl
@@ -172,11 +184,6 @@ logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger("headroom.proxy")
-
-# Preserve module-level backend symbols for tests and patch-based integrations
-# while still importing the actual backend implementations lazily at runtime.
-AnyLLMBackend = None
-LiteLLMBackend = None
 
 # Always-on file logging to ~/.headroom/logs/ for `headroom perf` analysis
 _setup_file_logging()
@@ -203,55 +210,31 @@ class HeadroomProxy(
 ):
     """Production-ready Headroom optimization proxy."""
 
-    ANTHROPIC_API_URL = "https://api.anthropic.com"
-    OPENAI_API_URL = "https://api.openai.com"
-    GEMINI_API_URL = "https://generativelanguage.googleapis.com"
-    CLOUDCODE_API_URL = "https://cloudcode-pa.googleapis.com"
+    ANTHROPIC_API_URL = DEFAULT_ANTHROPIC_API_URL
+    OPENAI_API_URL = DEFAULT_OPENAI_API_URL
+    GEMINI_API_URL = DEFAULT_GEMINI_API_URL
+    CLOUDCODE_API_URL = DEFAULT_CLOUDCODE_API_URL
 
     def __init__(self, config: ProxyConfig):
         self.config = config
         self.config.mode = normalize_proxy_mode(self.config.mode)
+        self.pipeline_extensions = PipelineExtensionManager(
+            hooks=config.hooks,
+            extensions=config.pipeline_extensions,
+            discover=config.discover_pipeline_extensions,
+        )
 
-        # Reset per-instance API targets first so test runs and multiple app instances
-        # do not leak class-level overrides across each other.
-        HeadroomProxy.ANTHROPIC_API_URL = "https://api.anthropic.com"
-        HeadroomProxy.OPENAI_API_URL = "https://api.openai.com"
-        HeadroomProxy.GEMINI_API_URL = "https://generativelanguage.googleapis.com"
-        HeadroomProxy.CLOUDCODE_API_URL = "https://cloudcode-pa.googleapis.com"
+        self.provider_runtime = build_proxy_provider_runtime(config)
+        api_targets = self.provider_runtime.api_targets
 
-        # Override ANTHROPIC_API_URL with config if set.
-        # Strip trailing /v1 or /v1/ to avoid double-path (e.g., .../v1/v1/models).
-        if config.anthropic_api_url:
-            url = config.anthropic_api_url.rstrip("/")
-            if url.endswith("/v1"):
-                url = url[:-3]
-            HeadroomProxy.ANTHROPIC_API_URL = url
-
-        # Override OPENAI_API_URL with config if set.
-        # Strip trailing /v1 or /v1/ to avoid double-path (e.g., .../v1/v1/models).
-        if config.openai_api_url:
-            url = config.openai_api_url.rstrip("/")
-            if url.endswith("/v1"):
-                url = url[:-3]
-            HeadroomProxy.OPENAI_API_URL = url
-
-        # Override GEMINI_API_URL with config if set.
-        if config.gemini_api_url:
-            gurl = config.gemini_api_url.rstrip("/")
-            if gurl.endswith("/v1"):
-                gurl = gurl[:-3]
-            HeadroomProxy.GEMINI_API_URL = gurl
-
-        # Override CLOUDCODE_API_URL with config if set.
-        if config.cloudcode_api_url:
-            curl = config.cloudcode_api_url.rstrip("/")
-            if curl.endswith("/v1"):
-                curl = curl[:-3]
-            HeadroomProxy.CLOUDCODE_API_URL = curl
-
-        # Initialize providers
-        self.anthropic_provider = AnthropicProvider()
-        self.openai_provider = OpenAIProvider()
+        # Preserve the long-standing proxy compatibility surface while keeping
+        # provider_runtime as the source of truth for resolved upstream targets.
+        HeadroomProxy.ANTHROPIC_API_URL = api_targets.anthropic
+        HeadroomProxy.OPENAI_API_URL = api_targets.openai
+        HeadroomProxy.GEMINI_API_URL = api_targets.gemini
+        HeadroomProxy.CLOUDCODE_API_URL = api_targets.cloudcode
+        self.anthropic_provider = self.provider_runtime.pipeline_provider("anthropic")
+        self.openai_provider = self.provider_runtime.pipeline_provider("openai")
 
         # Initialize transforms based on routing mode
         # Choose context manager: IntelligentContextManager (smart) or RollingWindow (legacy)
@@ -428,53 +411,14 @@ class HeadroomProxy(
 
         # Backend for Anthropic API (direct, LiteLLM, or any-llm)
         # Supports: "anthropic" (direct), "bedrock", "vertex", "litellm-<provider>", or "anyllm"
-        self.anthropic_backend: Backend | None = None
-        if config.backend != "anthropic":
-            backend = config.backend
-
-            # Handle any-llm backend
-            if backend == "anyllm" or backend.startswith("anyllm-"):
-                provider = config.anyllm_provider
-                try:
-                    global AnyLLMBackend
-                    if AnyLLMBackend is None:
-                        from headroom.backends.anyllm import AnyLLMBackend as ImportedAnyLLMBackend
-
-                        AnyLLMBackend = ImportedAnyLLMBackend
-
-                    self.anthropic_backend = AnyLLMBackend(provider=provider)
-                    logger.info(f"any-llm backend enabled (provider={provider})")
-                except ImportError as e:
-                    logger.warning(f"any-llm backend not available: {e}")
-                except Exception as e:
-                    logger.error(f"Failed to initialize any-llm backend: {e}")
-            else:
-                # Handle LiteLLM backend
-                # Normalize backend name: "bedrock" -> "litellm-bedrock"
-                if not backend.startswith("litellm-"):
-                    backend = f"litellm-{backend}"
-                provider = backend.replace("litellm-", "")
-
-                try:
-                    global LiteLLMBackend
-                    if LiteLLMBackend is None:
-                        from headroom.backends.litellm import (
-                            LiteLLMBackend as ImportedLiteLLMBackend,
-                        )
-
-                        LiteLLMBackend = ImportedLiteLLMBackend
-
-                    self.anthropic_backend = LiteLLMBackend(
-                        provider=provider,
-                        region=config.bedrock_region,
-                    )
-                    logger.info(
-                        f"LiteLLM backend enabled (provider={provider}, region={config.bedrock_region})"
-                    )
-                except ImportError as e:
-                    logger.warning(f"LiteLLM backend not available: {e}")
-                except Exception as e:
-                    logger.error(f"Failed to initialize LiteLLM backend: {e}")
+        self.anthropic_backend: Backend | None = create_proxy_backend(
+            backend=config.backend,
+            anyllm_provider=config.anyllm_provider,
+            bedrock_region=config.bedrock_region,
+            logger=logger,
+            anyllm_backend_cls=AnyLLMBackend,
+            litellm_backend_cls=LiteLLMBackend,
+        )
 
         # Request counter for IDs
         self._request_counter = 0
@@ -590,6 +534,17 @@ class HeadroomProxy(
             else:
                 self.code_graph_watcher = None
 
+        self.pipeline_extensions.emit(
+            PipelineStage.SETUP,
+            operation="proxy.setup",
+            metadata={
+                "mode": self.config.mode,
+                "optimize": self.config.optimize,
+                "backend": self.config.backend,
+                "memory_enabled": self.config.memory_enabled,
+            },
+        )
+
     def _get_compression_cache(self, session_id: str) -> CompressionCache:
         """Get or create a CompressionCache for a session."""
         if session_id not in self._compression_caches:
@@ -645,6 +600,11 @@ class HeadroomProxy(
 
     async def startup(self):
         """Initialize async resources."""
+        self.pipeline_extensions.emit(
+            PipelineStage.PRE_START,
+            operation="proxy.startup",
+            metadata={"port": self.config.port, "host": self.config.host},
+        )
         self.http_client = httpx.AsyncClient(
             timeout=httpx.Timeout(
                 connect=self.config.connect_timeout_seconds,
@@ -862,6 +822,16 @@ class HeadroomProxy(
             )
         else:
             logger.info("Anonymous telemetry: DISABLED")
+
+        self.pipeline_extensions.emit(
+            PipelineStage.POST_START,
+            operation="proxy.startup",
+            metadata={
+                "port": self.config.port,
+                "host": self.config.host,
+                "warmup": self.warmup.to_dict(),
+            },
+        )
 
     async def shutdown(self):
         """Cleanup async resources."""
@@ -1438,7 +1408,17 @@ def create_app(config: ProxyConfig | None = None) -> FastAPI:
     _stats_snapshot: dict[str, Any] = {"expires_at": 0.0, "value": None}
 
     async def _build_stats_payload() -> dict[str, Any]:
-        """Build the full `/stats` response payload."""
+        """Build the full `/stats` response payload.
+
+        This is the main stats endpoint - it aggregates data from all subsystems:
+        - Request metrics (total, cached, failed, by model/provider)
+        - Token usage and savings
+        - Cost tracking
+        - Canonical persisted display_session metrics for downstream dashboards
+        - Compression (CCR) statistics
+        - Telemetry/TOIN (data flywheel) statistics
+        - Cache and rate limiter stats
+        """
         m = proxy.metrics
 
         # Calculate average latency
@@ -2269,385 +2249,7 @@ def create_app(config: ProxyConfig | None = None) -> FastAPI:
     async def compress_messages(request: Request):
         return await proxy.handle_compress(request)
 
-    # Anthropic endpoints
-    @app.post("/v1/messages")
-    async def anthropic_messages(request: Request):
-        return await proxy.handle_anthropic_messages(request)
-
-    @app.post("/v1/messages/count_tokens")
-    async def anthropic_count_tokens(request: Request):
-        return await proxy.handle_passthrough(
-            request, proxy.ANTHROPIC_API_URL, "count_tokens", "anthropic"
-        )
-
-    # Anthropic Message Batches API endpoints
-    @app.post("/v1/messages/batches")
-    async def anthropic_batch_create(request: Request):
-        """Create a message batch with compression applied to all requests."""
-        return await proxy.handle_anthropic_batch_create(request)
-
-    @app.get("/v1/messages/batches")
-    async def anthropic_batch_list(request: Request):
-        """List message batches (passthrough)."""
-        return await proxy.handle_anthropic_batch_passthrough(request)
-
-    @app.get("/v1/messages/batches/{batch_id}")
-    async def anthropic_batch_get(request: Request, batch_id: str):
-        """Get a specific message batch (passthrough)."""
-        return await proxy.handle_anthropic_batch_passthrough(request, batch_id)
-
-    @app.get("/v1/messages/batches/{batch_id}/results")
-    async def anthropic_batch_results(request: Request, batch_id: str):
-        """Get results for a message batch with CCR post-processing."""
-        return await proxy.handle_anthropic_batch_results(request, batch_id)
-
-    @app.post("/v1/messages/batches/{batch_id}/cancel")
-    async def anthropic_batch_cancel(request: Request, batch_id: str):
-        """Cancel a message batch (passthrough)."""
-        return await proxy.handle_anthropic_batch_passthrough(request, batch_id)
-
-    # OpenAI endpoints
-    @app.post("/v1/chat/completions")
-    async def openai_chat(request: Request):
-        return await proxy.handle_openai_chat(request)
-
-    @app.post("/v1/responses")
-    async def openai_responses(request: Request):
-        """OpenAI Responses API (new API introduced March 2025)."""
-        return await proxy.handle_openai_responses(request)
-
-    @app.post("/v1/codex/responses")
-    async def openai_v1_codex_responses(request: Request):
-        """Pi/OpenAI Codex compatibility path for OpenAI-style /v1 base URLs."""
-        return await proxy.handle_openai_responses(request)
-
-    @app.post("/backend-api/responses")
-    async def openai_codex_responses(request: Request):
-        """OpenAI Codex Responses API path preserved from ChatGPT backend."""
-        return await proxy.handle_openai_responses(request)
-
-    @app.post("/backend-api/codex/responses")
-    async def openai_codex_nested_responses(request: Request):
-        """OpenAI Codex Responses API path for codex-shaped proxy base URLs."""
-        return await proxy.handle_openai_responses(request)
-
-    @app.websocket("/v1/responses")
-    async def openai_responses_ws(websocket: WebSocket):
-        """OpenAI Responses API via WebSocket (Codex gpt-5.4+)."""
-        await proxy.handle_openai_responses_ws(websocket)
-
-    @app.websocket("/v1/codex/responses")
-    async def openai_v1_codex_responses_ws(websocket: WebSocket):
-        """Pi/OpenAI Codex compatibility WebSocket path for /v1 base URLs."""
-        await proxy.handle_openai_responses_ws(websocket)
-
-    # OpenAI Responses API sub-endpoints (passthrough).
-    # Codex sub-agents use /v1/responses/compact and other sub-paths
-    # that we don't need to compress — just forward with correct auth routing.
-    @app.api_route("/v1/responses/{sub_path:path}", methods=["GET", "POST", "DELETE"])
-    async def openai_responses_sub(request: Request, sub_path: str):
-        """Passthrough for /v1/responses/* sub-endpoints (compact, cancel, etc.)."""
-        from fastapi.responses import Response
-
-        from headroom.proxy.handlers.openai import _resolve_codex_routing_headers
-
-        headers = dict(request.headers.items())
-        headers.pop("host", None)
-        headers, is_chatgpt_auth = _resolve_codex_routing_headers(headers)
-
-        # Route to correct endpoint based on auth mode.
-        # ChatGPT session auth (codex login) uses chatgpt.com with /responses/...
-        # path (no /v1/ prefix). API key auth uses api.openai.com/v1/responses/...
-        if is_chatgpt_auth:
-            url = f"https://chatgpt.com/backend-api/codex/responses/{sub_path}"
-        else:
-            url = f"{proxy.OPENAI_API_URL}/v1/responses/{sub_path}"
-
-        if request.url.query:
-            url = f"{url}?{request.url.query}"
-
-        body = await request.body()
-        try:
-            assert proxy.http_client is not None
-            resp = await proxy.http_client.request(
-                request.method,
-                url,
-                headers=headers,
-                content=body,
-                timeout=120.0,
-            )
-            return Response(
-                content=resp.content,
-                status_code=resp.status_code,
-                headers=dict(resp.headers),
-            )
-        except Exception as e:
-            logger.error(f"Passthrough /v1/responses/{sub_path} failed: {e}")
-            return Response(content=str(e), status_code=502)
-
-    @app.api_route("/v1/codex/responses/{sub_path:path}", methods=["GET", "POST", "DELETE"])
-    async def openai_v1_codex_responses_sub(request: Request, sub_path: str):
-        """Passthrough for Pi/OpenAI Codex /v1/codex/responses/* sub-endpoints."""
-        return await openai_responses_sub(request, sub_path)
-
-    @app.websocket("/backend-api/responses")
-    async def openai_codex_responses_ws(websocket: WebSocket):
-        """OpenAI Codex Responses WebSocket path preserved from ChatGPT backend."""
-        await proxy.handle_openai_responses_ws(websocket)
-
-    @app.websocket("/backend-api/codex/responses")
-    async def openai_codex_nested_responses_ws(websocket: WebSocket):
-        """OpenAI Codex Responses WebSocket path for codex-shaped proxy base URLs."""
-        await proxy.handle_openai_responses_ws(websocket)
-
-    @app.api_route("/backend-api/responses/{sub_path:path}", methods=["GET", "POST", "DELETE"])
-    async def openai_codex_responses_sub(request: Request, sub_path: str):
-        """Passthrough for /backend-api/responses/* sub-endpoints."""
-        return await openai_responses_sub(request, sub_path)
-
-    @app.api_route(
-        "/backend-api/codex/responses/{sub_path:path}", methods=["GET", "POST", "DELETE"]
-    )
-    async def openai_codex_nested_responses_sub(request: Request, sub_path: str):
-        """Passthrough for /backend-api/codex/responses/* sub-endpoints."""
-        return await openai_responses_sub(request, sub_path)
-
-    # OpenAI Batch API endpoints (with compression!)
-    @app.post("/v1/batches")
-    async def create_batch(request: Request):
-        """Create a batch with automatic compression of messages."""
-        return await proxy.handle_batch_create(request)
-
-    @app.get("/v1/batches")
-    async def list_batches(request: Request):
-        """List batches (passthrough to OpenAI)."""
-        return await proxy.handle_batch_list(request)
-
-    @app.get("/v1/batches/{batch_id}")
-    async def get_batch(request: Request, batch_id: str):
-        """Get batch details (passthrough to OpenAI)."""
-        return await proxy.handle_batch_get(request, batch_id)
-
-    @app.post("/v1/batches/{batch_id}/cancel")
-    async def cancel_batch(request: Request, batch_id: str):
-        """Cancel a batch (passthrough to OpenAI)."""
-        return await proxy.handle_batch_cancel(request, batch_id)
-
-    # Gemini native endpoints
-    @app.post("/v1beta/models/{model}:generateContent")
-    async def gemini_generate_content(request: Request, model: str):
-        """Gemini native generateContent API."""
-        return await proxy.handle_gemini_generate_content(request, model)
-
-    @app.post("/v1beta/models/{model}:streamGenerateContent")
-    async def gemini_stream_generate_content(request: Request, model: str):
-        """Gemini native streaming generateContent API."""
-        return await proxy.handle_gemini_stream_generate_content(request, model)
-
-    @app.post("/v1beta/models/{model}:countTokens")
-    async def gemini_count_tokens(request: Request, model: str):
-        """Gemini countTokens API with compression applied."""
-        return await proxy.handle_gemini_count_tokens(request, model)
-
-    @app.post("/v1internal:streamGenerateContent")
-    async def google_cloudcode_stream_generate_content(request: Request):
-        """Google Cloud Code Assist / Antigravity compatibility streaming endpoint."""
-        return await proxy.handle_google_cloudcode_stream(request)
-
-    @app.post("/v1/v1internal:streamGenerateContent")
-    async def google_cloudcode_stream_generate_content_v1(request: Request):
-        """Compatibility endpoint for clients configured with a /v1 proxy base URL."""
-        return await proxy.handle_google_cloudcode_stream(request)
-
-    # =========================================================================
-    # Databricks Native Endpoints
-    # =========================================================================
-
-    @app.post("/serving-endpoints/{model}/invocations")
-    async def databricks_invocations(request: Request, model: str):
-        """Databricks native serving endpoint - compatible with Databricks CLI.
-
-        This allows using the Databricks CLI directly with Headroom proxy:
-            databricks serving-endpoints query <model> --profile HEADROOM --json '{"messages": [...]}'
-
-        The request format is identical to OpenAI chat completions.
-        """
-        return await proxy.handle_databricks_invocations(request, model)
-
-    # =========================================================================
-    # Passthrough Endpoints (no compression needed)
-    # =========================================================================
-
-    # --- OpenAI Passthrough Endpoints ---
-
-    @app.get("/v1/models")
-    async def list_models(request: Request):
-        """List models - route based on auth header.
-
-        - x-api-key / anthropic-version / Bearer sk-ant-* -> Anthropic
-        - Otherwise -> OpenAI
-        """
-        if is_anthropic_auth(dict(request.headers)):
-            return await proxy.handle_passthrough(
-                request, proxy.ANTHROPIC_API_URL, "models", "anthropic"
-            )
-        return await proxy.handle_passthrough(request, proxy.OPENAI_API_URL, "models", "openai")
-
-    @app.get("/v1/models/{model_id}")
-    async def get_model(request: Request, model_id: str):
-        """Get model details - route based on auth header.
-
-        - x-api-key / anthropic-version / Bearer sk-ant-* -> Anthropic
-        - Otherwise -> OpenAI
-        """
-        if is_anthropic_auth(dict(request.headers)):
-            return await proxy.handle_passthrough(
-                request, proxy.ANTHROPIC_API_URL, "models", "anthropic"
-            )
-        return await proxy.handle_passthrough(request, proxy.OPENAI_API_URL, "models", "openai")
-
-    @app.post("/v1/embeddings")
-    async def openai_embeddings(request: Request):
-        """OpenAI embeddings API - passthrough."""
-        return await proxy.handle_passthrough(request, proxy.OPENAI_API_URL, "embeddings", "openai")
-
-    @app.post("/v1/moderations")
-    async def openai_moderations(request: Request):
-        """OpenAI moderations API - passthrough."""
-        return await proxy.handle_passthrough(
-            request, proxy.OPENAI_API_URL, "moderations", "openai"
-        )
-
-    @app.post("/v1/images/generations")
-    async def openai_images_generations(request: Request):
-        """OpenAI image generation API - passthrough."""
-        return await proxy.handle_passthrough(
-            request, proxy.OPENAI_API_URL, "images/generations", "openai"
-        )
-
-    @app.post("/v1/audio/transcriptions")
-    async def openai_audio_transcriptions(request: Request):
-        """OpenAI audio transcription API (multipart/form-data) - passthrough."""
-        return await proxy.handle_passthrough(
-            request, proxy.OPENAI_API_URL, "audio/transcriptions", "openai"
-        )
-
-    @app.post("/v1/audio/speech")
-    async def openai_audio_speech(request: Request):
-        """OpenAI text-to-speech API - passthrough."""
-        return await proxy.handle_passthrough(
-            request, proxy.OPENAI_API_URL, "audio/speech", "openai"
-        )
-
-    # --- Gemini Passthrough Endpoints ---
-
-    @app.get("/v1beta/models")
-    async def gemini_list_models(request: Request):
-        """Gemini list models API - passthrough."""
-        return await proxy.handle_passthrough(request, proxy.GEMINI_API_URL, "models", "gemini")
-
-    @app.get("/v1beta/models/{model_name}")
-    async def gemini_get_model(request: Request, model_name: str):
-        """Gemini get model API - passthrough.
-
-        Note: This handles GET /v1beta/models/{model_name} but NOT :countTokens
-        which is handled by a separate POST route above.
-        """
-        return await proxy.handle_passthrough(request, proxy.GEMINI_API_URL, "models", "gemini")
-
-    @app.post("/v1beta/models/{model}:embedContent")
-    async def gemini_embed_content(request: Request, model: str):
-        """Gemini embedding API - passthrough."""
-        return await proxy.handle_passthrough(
-            request, proxy.GEMINI_API_URL, "embedContent", "gemini"
-        )
-
-    @app.post("/v1beta/models/{model}:batchEmbedContents")
-    async def gemini_batch_embed_contents(request: Request, model: str):
-        """Gemini batch embeddings API - passthrough."""
-        return await proxy.handle_passthrough(
-            request, proxy.GEMINI_API_URL, "batchEmbedContents", "gemini"
-        )
-
-    # Google/Gemini Batch API endpoints (with compression!)
-    @app.post("/v1beta/models/{model}:batchGenerateContent")
-    async def gemini_batch_create(request: Request, model: str):
-        """Create a Gemini batch with compression applied to all requests."""
-        return await proxy.handle_google_batch_create(request, model)
-
-    @app.get("/v1beta/batches/{batch_name}")
-    async def gemini_batch_get(request: Request, batch_name: str):
-        """Get a specific Gemini batch with CCR post-processing."""
-        return await proxy.handle_google_batch_results(request, batch_name)
-
-    @app.post("/v1beta/batches/{batch_name}:cancel")
-    async def gemini_batch_cancel(request: Request, batch_name: str):
-        """Cancel a Gemini batch (passthrough)."""
-        return await proxy.handle_google_batch_passthrough(request, batch_name)
-
-    @app.delete("/v1beta/batches/{batch_name}")
-    async def gemini_batch_delete(request: Request, batch_name: str):
-        """Delete a Gemini batch (passthrough)."""
-        return await proxy.handle_google_batch_passthrough(request, batch_name)
-
-    @app.post("/v1beta/cachedContents")
-    async def gemini_create_cached_content(request: Request):
-        """Gemini create cached content API - passthrough."""
-        return await proxy.handle_passthrough(
-            request, proxy.GEMINI_API_URL, "cachedContents", "gemini"
-        )
-
-    @app.get("/v1beta/cachedContents")
-    async def gemini_list_cached_contents(request: Request):
-        """Gemini list cached contents API - passthrough."""
-        return await proxy.handle_passthrough(
-            request, proxy.GEMINI_API_URL, "cachedContents", "gemini"
-        )
-
-    @app.get("/v1beta/cachedContents/{cache_id}")
-    async def gemini_get_cached_content(request: Request, cache_id: str):
-        """Gemini get cached content API - passthrough."""
-        return await proxy.handle_passthrough(
-            request, proxy.GEMINI_API_URL, "cachedContents", "gemini"
-        )
-
-    @app.delete("/v1beta/cachedContents/{cache_id}")
-    async def gemini_delete_cached_content(request: Request, cache_id: str):
-        """Gemini delete cached content API - passthrough."""
-        return await proxy.handle_passthrough(
-            request, proxy.GEMINI_API_URL, "cachedContents", "gemini"
-        )
-
-    # =========================================================================
-    # Catch-all Passthrough
-    # =========================================================================
-
-    # Passthrough - route to correct backend based on headers
-    @app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
-    async def passthrough(request: Request, path: str):
-        # Allow explicit base URL override (for Azure, custom endpoints, etc.)
-        custom_base = request.headers.get("x-headroom-base-url")
-        if custom_base:
-            return await proxy.handle_passthrough(request, custom_base.rstrip("/"))
-
-        # Anthropic: x-api-key, anthropic-version, or Bearer sk-ant-* token
-        if is_anthropic_auth(dict(request.headers)):
-            base_url = proxy.ANTHROPIC_API_URL
-        # Gemini: sends x-goog-api-key
-        elif request.headers.get("x-goog-api-key"):
-            base_url = proxy.GEMINI_API_URL
-        # Azure OpenAI: sends api-key header (not x-api-key)
-        elif request.headers.get("api-key"):
-            # Azure requires explicit base URL (varies per deployment)
-            azure_base = request.headers.get("x-headroom-base-url", "")
-            if azure_base:
-                base_url = azure_base.rstrip("/")
-            else:
-                base_url = proxy.OPENAI_API_URL  # Fallback
-        else:
-            # Default: OpenAI
-            base_url = proxy.OPENAI_API_URL
-        return await proxy.handle_passthrough(request, base_url)
+    register_provider_routes(app, proxy)
 
     return app
 
@@ -2690,22 +2292,11 @@ def run_server(
     pool_info = f"max={config.max_connections}, keepalive={config.max_keepalive_connections}"
     http2_status = "ENABLED" if config.http2 else "DISABLED"
 
-    # Backend status - use provider registry for display info
-    if config.backend == "anthropic":
-        backend_status = "ANTHROPIC (direct API)"
-    elif config.backend == "anyllm" or config.backend.startswith("anyllm-"):
-        backend_status = f"{config.anyllm_provider.title()} via any-llm"
-    else:
-        from headroom.backends.litellm import get_provider_config
-
-        provider = config.backend.replace("litellm-", "")
-        provider_config = get_provider_config(provider)
-        if provider_config.uses_region:
-            backend_status = (
-                f"{provider_config.display_name} via LiteLLM (region={config.bedrock_region})"
-            )
-        else:
-            backend_status = f"{provider_config.display_name} via LiteLLM"
+    backend_status = format_backend_status(
+        backend=config.backend,
+        anyllm_provider=config.anyllm_provider,
+        bedrock_region=config.bedrock_region,
+    )
 
     print(f"""
 ╔══════════════════════════════════════════════════════════════════════╗
@@ -2848,11 +2439,11 @@ if __name__ == "__main__":
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8787)
     parser.add_argument(
-        "--openai-api-url", help=f"Custom OpenAI API URL (default: {HeadroomProxy.OPENAI_API_URL})"
+        "--openai-api-url", help=f"Custom OpenAI API URL (default: {DEFAULT_OPENAI_API_URL})"
     )
     parser.add_argument(
         "--anthropic-api-url",
-        help=f"Custom Anthropic API URL (default: {HeadroomProxy.ANTHROPIC_API_URL})",
+        help=f"Custom Anthropic API URL (default: {DEFAULT_ANTHROPIC_API_URL})",
     )
 
     # Backend (anthropic direct, bedrock, openrouter, anyllm, or litellm-<provider>)

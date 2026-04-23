@@ -175,10 +175,11 @@ def test_release_version_script_runs_directly_without_importing_headroom_package
     )
 
     assert result.returncode == 0, result.stderr
+    canonical_version = get_canonical_version(ROOT)
     assert output_path.read_text(encoding="utf-8").splitlines() == [
         "version=0.6.0",
         "npm_version=0.6.0",
-        f"canonical={get_canonical_version(ROOT)}",
+        f"canonical={canonical_version}",
         "height=0",
         "bump=manual",
         "previous_tag=",

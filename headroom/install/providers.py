@@ -2,34 +2,26 @@
 
 from __future__ import annotations
 
-import json
 import os
 import re
 import subprocess
 from pathlib import Path
 
-import click
+from headroom.providers.install_registry import (
+    apply_provider_scope_mutations,
+    revert_provider_scope_mutation,
+)
 
-from .models import ConfigScope, DeploymentManifest, ManagedMutation, ToolTarget
+from .models import ConfigScope, DeploymentManifest, ManagedMutation
 from .paths import (
-    claude_settings_path,
-    codex_config_path,
-    openclaw_config_path,
     unix_system_env_targets,
     unix_user_env_targets,
 )
-from .runtime import resolve_headroom_command
 
 _ENV_MARKER_START = "# >>> headroom persistent env >>>"
 _ENV_MARKER_END = "# <<< headroom persistent env <<<"
 _ENV_PATTERN = re.compile(
     re.escape(_ENV_MARKER_START) + r".*?" + re.escape(_ENV_MARKER_END),
-    re.DOTALL,
-)
-_CODEX_MARKER_START = "# --- Headroom persistent provider ---"
-_CODEX_MARKER_END = "# --- end Headroom persistent provider ---"
-_CODEX_PATTERN = re.compile(
-    re.escape(_CODEX_MARKER_START) + r".*?" + re.escape(_CODEX_MARKER_END),
     re.DOTALL,
 )
 
@@ -153,112 +145,6 @@ def _remove_windows_env_scope(mutations: list[ManagedMutation]) -> None:
         subprocess.run(command, check=True)
 
 
-def _apply_claude_provider_scope(manifest: DeploymentManifest) -> ManagedMutation:
-    path = claude_settings_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    payload: dict[str, object] = {}
-    if path.exists():
-        payload = json.loads(path.read_text())
-    env = payload.get("env")
-    env_map = dict(env) if isinstance(env, dict) else {}
-    previous = {
-        name: env_map.get(name) for name in manifest.tool_envs.get(ToolTarget.CLAUDE.value, {})
-    }
-    env_map.update(manifest.tool_envs[ToolTarget.CLAUDE.value])
-    payload["env"] = env_map
-    path.write_text(json.dumps(payload, indent=2) + "\n")
-    return ManagedMutation(
-        target=ToolTarget.CLAUDE.value,
-        kind="json-env",
-        path=str(path),
-        data={"previous": previous},
-    )
-
-
-def _revert_claude_provider_scope(mutation: ManagedMutation, values: dict[str, str]) -> None:
-    if not mutation.path:
-        return
-    path = Path(mutation.path)
-    if not path.exists():
-        return
-    payload = json.loads(path.read_text())
-    env = payload.get("env")
-    env_map = dict(env) if isinstance(env, dict) else {}
-    previous: dict[str, object] = mutation.data.get("previous", {})
-    for name in values:
-        if previous.get(name) is None:
-            env_map.pop(name, None)
-        else:
-            env_map[name] = previous[name]
-    payload["env"] = env_map
-    path.write_text(json.dumps(payload, indent=2) + "\n")
-
-
-def _apply_codex_provider_scope(manifest: DeploymentManifest) -> ManagedMutation:
-    path = codex_config_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    section = (
-        f"{_CODEX_MARKER_START}\n"
-        'model_provider = "headroom"\n\n'
-        "[model_providers.headroom]\n"
-        'name = "Headroom persistent proxy"\n'
-        f'base_url = "http://127.0.0.1:{manifest.port}/v1"\n'
-        'env_key = "OPENAI_API_KEY"\n'
-        "requires_openai_auth = true\n"
-        "supports_websockets = true\n"
-        f"{_CODEX_MARKER_END}\n"
-    )
-    merged = _merge_marker_block(path, section, _CODEX_PATTERN, _CODEX_MARKER_START)
-    path.write_text(merged)
-    return ManagedMutation(target=ToolTarget.CODEX.value, kind="toml-block", path=str(path))
-
-
-def _revert_codex_provider_scope(mutation: ManagedMutation) -> None:
-    if not mutation.path:
-        return
-    path = Path(mutation.path)
-    if not path.exists():
-        return
-    content = path.read_text()
-    if _CODEX_MARKER_START not in content:
-        return
-    path.write_text(_CODEX_PATTERN.sub("", content).strip() + "\n")
-
-
-def _invoke_openclaw(command: list[str]) -> None:
-    subprocess.run(command, check=True)
-
-
-def _apply_openclaw_provider_scope(manifest: DeploymentManifest) -> ManagedMutation:
-    if not shutil_which("openclaw"):
-        raise click.ClickException("openclaw not found in PATH; cannot apply provider scope.")
-    command = [
-        *resolve_headroom_command(),
-        "wrap",
-        "openclaw",
-        "--no-auto-start",
-        "--proxy-port",
-        str(manifest.port),
-    ]
-    _invoke_openclaw(command)
-    return ManagedMutation(
-        target=ToolTarget.OPENCLAW.value, kind="openclaw-wrap", path=str(openclaw_config_path())
-    )
-
-
-def _revert_openclaw_provider_scope() -> None:
-    if not shutil_which("openclaw"):
-        return
-    command = [*resolve_headroom_command(), "unwrap", "openclaw"]
-    _invoke_openclaw(command)
-
-
-def shutil_which(name: str) -> str | None:
-    from shutil import which
-
-    return which(name)
-
-
 def apply_mutations(manifest: DeploymentManifest) -> list[ManagedMutation]:
     """Apply provider/user/system configuration for a deployment."""
 
@@ -268,17 +154,10 @@ def apply_mutations(manifest: DeploymentManifest) -> list[ManagedMutation]:
             mutations.extend(_apply_windows_env_scope(manifest))
         else:
             mutations.extend(_apply_unix_env_scope(manifest))
-        if ToolTarget.OPENCLAW.value in manifest.targets:
-            mutations.append(_apply_openclaw_provider_scope(manifest))
+        mutations.extend(apply_provider_scope_mutations(manifest))
         return mutations
 
-    if ToolTarget.CLAUDE.value in manifest.targets:
-        mutations.append(_apply_claude_provider_scope(manifest))
-    if ToolTarget.CODEX.value in manifest.targets:
-        mutations.append(_apply_codex_provider_scope(manifest))
-    if ToolTarget.OPENCLAW.value in manifest.targets:
-        mutations.append(_apply_openclaw_provider_scope(manifest))
-    return mutations
+    return [*mutations, *apply_provider_scope_mutations(manifest)]
 
 
 def revert_mutations(manifest: DeploymentManifest) -> None:
@@ -292,11 +171,4 @@ def revert_mutations(manifest: DeploymentManifest) -> None:
             _remove_unix_env_scope(shell_mutations)
 
     for mutation in manifest.mutations:
-        if mutation.target == ToolTarget.CLAUDE.value and mutation.kind == "json-env":
-            _revert_claude_provider_scope(
-                mutation, manifest.tool_envs.get(ToolTarget.CLAUDE.value, {})
-            )
-        elif mutation.target == ToolTarget.CODEX.value and mutation.kind == "toml-block":
-            _revert_codex_provider_scope(mutation)
-        elif mutation.target == ToolTarget.OPENCLAW.value and mutation.kind == "openclaw-wrap":
-            _revert_openclaw_provider_scope()
+        revert_provider_scope_mutation(manifest, mutation)

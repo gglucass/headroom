@@ -32,6 +32,7 @@ if TYPE_CHECKING:
 import httpx
 
 from headroom.copilot_auth import apply_copilot_api_auth, build_copilot_upstream_url
+from headroom.pipeline import PipelineStage, summarize_routing_markers
 
 logger = logging.getLogger("headroom.proxy")
 
@@ -141,6 +142,11 @@ class OpenAIHandlerMixin:
         request: Request,
     ) -> Response | StreamingResponse:
         """Handle OpenAI /v1/chat/completions endpoint."""
+        if not hasattr(self, "pipeline_extensions"):
+            from headroom.pipeline import PipelineExtensionManager
+
+            self.pipeline_extensions = PipelineExtensionManager(discover=False)
+
         from fastapi import HTTPException
         from fastapi.responses import JSONResponse, Response
 
@@ -189,6 +195,21 @@ class OpenAIHandlerMixin:
         model = body.get("model", "unknown")
         messages = body.get("messages", [])
         original_client_messages = copy.deepcopy(messages)
+        input_event = self.pipeline_extensions.emit(
+            PipelineStage.INPUT_RECEIVED,
+            operation="proxy.request",
+            request_id=request_id,
+            provider="openai",
+            model=model,
+            messages=messages,
+            tools=body.get("tools"),
+            metadata={"path": "/v1/chat/completions", "stream": body.get("stream", False)},
+        )
+        if input_event.messages is not None:
+            messages = input_event.messages
+            original_client_messages = copy.deepcopy(messages)
+        if input_event.tools is not None:
+            body["tools"] = input_event.tools
 
         # Validate message array size
         if len(messages) > MAX_MESSAGE_ARRAY_LENGTH:
@@ -261,6 +282,15 @@ class OpenAIHandlerMixin:
         if self.cache and not stream:
             cached = await self.cache.get(messages, model)
             if cached:
+                self.pipeline_extensions.emit(
+                    PipelineStage.INPUT_CACHED,
+                    operation="proxy.request",
+                    request_id=request_id,
+                    provider="openai",
+                    model=model,
+                    messages=messages,
+                    metadata={"cache_hit": True, "path": "/v1/chat/completions"},
+                )
                 await self.metrics.record_request(
                     provider="openai",
                     model=model,
@@ -395,6 +425,43 @@ class OpenAIHandlerMixin:
         tokens_saved = original_tokens - optimized_tokens
         optimization_latency = (time.time() - start_time) * 1000
 
+        routing_markers = summarize_routing_markers(transforms_applied)
+        if routing_markers:
+            routed_event = self.pipeline_extensions.emit(
+                PipelineStage.INPUT_ROUTED,
+                operation="proxy.request",
+                request_id=request_id,
+                provider="openai",
+                model=model,
+                messages=optimized_messages,
+                metadata={
+                    "routing_markers": routing_markers,
+                    "transforms_applied": transforms_applied,
+                },
+            )
+            if routed_event.messages is not None:
+                optimized_messages = routed_event.messages
+                optimized_tokens = tokenizer.count_messages(optimized_messages)
+                tokens_saved = original_tokens - optimized_tokens
+
+        compressed_event = self.pipeline_extensions.emit(
+            PipelineStage.INPUT_COMPRESSED,
+            operation="proxy.request",
+            request_id=request_id,
+            provider="openai",
+            model=model,
+            messages=optimized_messages,
+            metadata={
+                "tokens_before": original_tokens,
+                "tokens_after": optimized_tokens,
+                "transforms_applied": transforms_applied,
+            },
+        )
+        if compressed_event.messages is not None:
+            optimized_messages = compressed_event.messages
+            optimized_tokens = tokenizer.count_messages(optimized_messages)
+            tokens_saved = original_tokens - optimized_tokens
+
         # Hook: post_compress
         if self.config.hooks and tokens_saved > 0:
             from headroom.hooks import CompressEvent
@@ -455,6 +522,8 @@ class OpenAIHandlerMixin:
                 )
 
         # Memory: inject context and tools for OpenAI requests
+        memory_context_injected = False
+        memory_tools_injected = False
         if self.memory_handler and memory_user_id:
             try:
                 # Inject memory context (search similar memories, add as system message)
@@ -468,6 +537,7 @@ class OpenAIHandlerMixin:
                             {"role": "system", "content": memory_context},
                             *optimized_messages,
                         ]
+                        memory_context_injected = True
                         logger.info(
                             f"[{request_id}] Memory: Injected {len(memory_context)} chars "
                             f"of context for user {memory_user_id}"
@@ -477,18 +547,70 @@ class OpenAIHandlerMixin:
                 if self.memory_handler.config.inject_tools:
                     tools, mem_tools_injected = self.memory_handler.inject_tools(tools, "openai")
                     if mem_tools_injected:
+                        memory_tools_injected = True
                         logger.info(f"[{request_id}] Memory: Injected memory tools (openai)")
             except Exception as e:
                 logger.warning(f"[{request_id}] Memory injection failed: {e}")
+
+        if memory_context_injected or memory_tools_injected:
+            remembered_event = self.pipeline_extensions.emit(
+                PipelineStage.INPUT_REMEMBERED,
+                operation="proxy.request",
+                request_id=request_id,
+                provider="openai",
+                model=model,
+                messages=optimized_messages,
+                tools=tools,
+                metadata={
+                    "memory_context_injected": memory_context_injected,
+                    "memory_tools_injected": memory_tools_injected,
+                },
+            )
+            if remembered_event.messages is not None:
+                optimized_messages = remembered_event.messages
+            if remembered_event.tools is not None:
+                tools = remembered_event.tools
 
         body["messages"] = optimized_messages
         if tools is not None:
             body["tools"] = tools
 
+        presend_event = self.pipeline_extensions.emit(
+            PipelineStage.PRE_SEND,
+            operation="proxy.request",
+            request_id=request_id,
+            provider="openai",
+            model=model,
+            messages=optimized_messages,
+            tools=tools,
+            headers=headers,
+            metadata={"path": "/v1/chat/completions", "stream": stream},
+        )
+        if presend_event.messages is not None:
+            optimized_messages = presend_event.messages
+            body["messages"] = optimized_messages
+        if presend_event.tools is not None:
+            tools = presend_event.tools
+            body["tools"] = tools
+        if presend_event.headers is not None:
+            headers = presend_event.headers
+        optimized_tokens = tokenizer.count_messages(body["messages"])
+        tokens_saved = original_tokens - optimized_tokens
+
         # Route through LiteLLM/any-llm backend if configured
         if self.anthropic_backend is not None:
             try:
                 if stream:
+                    self.pipeline_extensions.emit(
+                        PipelineStage.POST_SEND,
+                        operation="proxy.request",
+                        request_id=request_id,
+                        provider="openai",
+                        model=model,
+                        messages=body["messages"],
+                        tools=tools,
+                        metadata={"path": "/v1/chat/completions", "stream": True},
+                    )
                     # Streaming: use stream_openai_message() → SSE events
                     return await self._stream_openai_via_backend(
                         body,
@@ -508,6 +630,34 @@ class OpenAIHandlerMixin:
                     # Non-streaming: use send_openai_message() → JSON
                     backend_response = await self.anthropic_backend.send_openai_message(
                         body, headers
+                    )
+                    self.pipeline_extensions.emit(
+                        PipelineStage.POST_SEND,
+                        operation="proxy.request",
+                        request_id=request_id,
+                        provider="openai",
+                        model=model,
+                        messages=body["messages"],
+                        tools=tools,
+                        response=backend_response.body,
+                        metadata={
+                            "path": "/v1/chat/completions",
+                            "stream": False,
+                            "status_code": backend_response.status_code,
+                        },
+                    )
+                    self.pipeline_extensions.emit(
+                        PipelineStage.RESPONSE_RECEIVED,
+                        operation="proxy.request",
+                        request_id=request_id,
+                        provider="openai",
+                        model=model,
+                        response=backend_response.body,
+                        metadata={
+                            "path": "/v1/chat/completions",
+                            "stream": False,
+                            "status_code": backend_response.status_code,
+                        },
                     )
 
                     if backend_response.error:
@@ -569,6 +719,16 @@ class OpenAIHandlerMixin:
                 elif isinstance(body.get("stream_options"), dict):
                     body["stream_options"]["include_usage"] = True
 
+                self.pipeline_extensions.emit(
+                    PipelineStage.POST_SEND,
+                    operation="proxy.request",
+                    request_id=request_id,
+                    provider="openai",
+                    model=model,
+                    messages=body["messages"],
+                    tools=tools,
+                    metadata={"path": "/v1/chat/completions", "stream": True},
+                )
                 return await self._stream_response(
                     url,
                     headers,
@@ -588,6 +748,34 @@ class OpenAIHandlerMixin:
             else:
                 headers = await apply_copilot_api_auth(headers, url=url)
                 response = await self._retry_request("POST", url, headers, body)
+                self.pipeline_extensions.emit(
+                    PipelineStage.POST_SEND,
+                    operation="proxy.request",
+                    request_id=request_id,
+                    provider="openai",
+                    model=model,
+                    messages=body["messages"],
+                    tools=tools,
+                    response=response,
+                    metadata={
+                        "path": "/v1/chat/completions",
+                        "stream": False,
+                        "status_code": response.status_code,
+                    },
+                )
+                self.pipeline_extensions.emit(
+                    PipelineStage.RESPONSE_RECEIVED,
+                    operation="proxy.request",
+                    request_id=request_id,
+                    provider="openai",
+                    model=model,
+                    response=response,
+                    metadata={
+                        "path": "/v1/chat/completions",
+                        "stream": False,
+                        "status_code": response.status_code,
+                    },
+                )
 
                 # Full diagnostic dump on upstream errors (OpenAI handler)
                 if response.status_code >= 400:

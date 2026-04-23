@@ -8,7 +8,6 @@ needing API key access.
 import json
 import shutil
 import subprocess
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -25,15 +24,9 @@ DEFAULT_PROXY_URL = "http://127.0.0.1:8787"
 def get_headroom_command() -> list[str]:
     """Get the command to run headroom MCP server.
 
-    Returns the most reliable way to invoke headroom based on installation.
+    Returns the CLI invocation used by Claude Code config.
     """
-    # Check if headroom is in PATH
-    headroom_path = shutil.which("headroom")
-    if headroom_path:
-        return ["headroom", "mcp", "serve"]
-
-    # Fall back to python -m
-    return [sys.executable, "-m", "headroom.ccr.mcp_server"]
+    return ["headroom", "mcp", "serve"]
 
 
 def load_mcp_config() -> dict[str, Any]:

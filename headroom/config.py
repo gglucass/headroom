@@ -636,6 +636,10 @@ class HeadroomConfig:
     # Debugging - opt-in diff artifact generation
     generate_diff_artifact: bool = False  # Enable to get detailed transform diffs
 
+    # Canonical pipeline lifecycle extensions
+    pipeline_extensions: list[Any] = field(default_factory=list)
+    discover_pipeline_extensions: bool = True
+
     def get_context_limit(self, model: str) -> int | None:
         """
         Get context limit for a model from user overrides.

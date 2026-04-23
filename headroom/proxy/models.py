@@ -10,6 +10,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Literal
 
+from headroom.providers.registry import ProviderApiOverrides
+
 # =============================================================================
 # Data Models
 # =============================================================================
@@ -216,6 +218,8 @@ class ProxyConfig:
 
     # Compression Hooks
     hooks: Any = None
+    pipeline_extensions: list[Any] = field(default_factory=list)
+    discover_pipeline_extensions: bool = True
 
     # Subscription Window Tracking (Anthropic OAuth accounts)
     subscription_tracking_enabled: bool = True
@@ -251,3 +255,13 @@ class ProxyConfig:
     # is still holding a pre-upstream slot. Compression already has its own
     # COMPRESSION_TIMEOUT_SECONDS guard; this bounds the memory leg too.
     anthropic_pre_upstream_memory_context_timeout_seconds: float = 2.0
+
+    @property
+    def provider_api_overrides(self) -> ProviderApiOverrides:
+        """Return provider API URL overrides as a dedicated provider config object."""
+        return ProviderApiOverrides(
+            anthropic=self.anthropic_api_url,
+            openai=self.openai_api_url,
+            gemini=self.gemini_api_url,
+            cloudcode=self.cloudcode_api_url,
+        )

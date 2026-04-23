@@ -5,6 +5,7 @@ import sys
 
 import click
 
+from headroom.providers.registry import resolve_api_overrides, resolve_api_targets
 from headroom.proxy.modes import PROXY_MODE_TOKEN, normalize_proxy_mode
 
 from .main import main
@@ -334,11 +335,13 @@ def proxy(
             sys.exit(1)
         os.environ["HEADROOM_INTERCEPT_ENABLED"] = "1"
 
-    # Resolve API URL overrides: CLI flag > env var > None
-    effective_anthropic_api_url = anthropic_api_url or os.environ.get("ANTHROPIC_TARGET_API_URL")
-    effective_openai_api_url = openai_api_url or os.environ.get("OPENAI_TARGET_API_URL")
-    effective_gemini_api_url = gemini_api_url or os.environ.get("GEMINI_TARGET_API_URL")
-    effective_cloudcode_api_url = cloudcode_api_url or os.environ.get("CLOUDCODE_TARGET_API_URL")
+    provider_api_overrides = resolve_api_overrides(
+        anthropic_api_url=anthropic_api_url,
+        openai_api_url=openai_api_url,
+        gemini_api_url=gemini_api_url,
+        cloudcode_api_url=cloudcode_api_url,
+        environ=os.environ,
+    )
 
     # Resolve anyllm provider: env var takes precedence over CLI default (matches argparse path)
     effective_anyllm_provider = os.environ.get("HEADROOM_ANYLLM_PROVIDER") or anyllm_provider
@@ -370,10 +373,10 @@ def proxy(
     config = ProxyConfig(
         host=host,
         port=port,
-        anthropic_api_url=effective_anthropic_api_url,
-        openai_api_url=effective_openai_api_url,
-        gemini_api_url=effective_gemini_api_url,
-        cloudcode_api_url=effective_cloudcode_api_url,
+        anthropic_api_url=provider_api_overrides.anthropic,
+        openai_api_url=provider_api_overrides.openai,
+        gemini_api_url=provider_api_overrides.gemini,
+        cloudcode_api_url=provider_api_overrides.cloudcode,
         mode=effective_mode,
         optimize=not no_optimize,
         cache_enabled=not no_cache,
@@ -441,9 +444,10 @@ def proxy(
     if license_key:
         license_status = f"MANAGED (key={license_key[:8]}...)"
 
-    anthropic_url = config.anthropic_api_url or "https://api.anthropic.com"
-    openai_url = config.openai_api_url or "https://api.openai.com"
-    cloudcode_url = config.cloudcode_api_url or "https://cloudcode-pa.googleapis.com"
+    provider_api_targets = resolve_api_targets(config.provider_api_overrides)
+    anthropic_url = provider_api_targets.anthropic
+    openai_url = provider_api_targets.openai
+    cloudcode_url = provider_api_targets.cloudcode
     backend_section = ""
 
     if config.backend == "anyllm" or config.backend.startswith("anyllm-"):

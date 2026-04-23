@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -47,7 +48,7 @@ def test_savings_tracker_helpers_normalize_inputs_and_paths(tmp_path, monkeypatc
 
     monkeypatch.delenv(HEADROOM_SAVINGS_PATH_ENV_VAR, raising=False)
     default_path = savings_tracker_module.get_default_savings_storage_path()
-    assert default_path.endswith(".headroom/proxy_savings.json")
+    assert Path(default_path).as_posix().endswith(".headroom/proxy_savings.json")
 
     assert savings_tracker_module._parse_timestamp("") is None
     assert savings_tracker_module._parse_timestamp("not-a-timestamp") is None

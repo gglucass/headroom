@@ -23,6 +23,8 @@ if TYPE_CHECKING:
 
 import httpx
 
+from headroom.pipeline import PipelineStage, summarize_routing_markers
+
 logger = logging.getLogger("headroom.proxy")
 
 
@@ -297,6 +299,11 @@ class AnthropicHandlerMixin:
         request: Request,
     ) -> Response | StreamingResponse:
         """Handle Anthropic /v1/messages endpoint."""
+        if not hasattr(self, "pipeline_extensions"):
+            from headroom.pipeline import PipelineExtensionManager
+
+            self.pipeline_extensions = PipelineExtensionManager(discover=False)
+
         from fastapi import HTTPException
         from fastapi.responses import JSONResponse, Response
 
@@ -467,6 +474,22 @@ class AnthropicHandlerMixin:
             messages = body.get("messages", [])
             with stage_timer.measure("deep_copy"):
                 original_client_messages = copy.deepcopy(messages)
+            input_event = self.pipeline_extensions.emit(
+                PipelineStage.INPUT_RECEIVED,
+                operation="proxy.request",
+                request_id=request_id,
+                provider="anthropic",
+                model=model,
+                messages=messages,
+                tools=body.get("tools"),
+                metadata={"path": "/v1/messages", "stream": body.get("stream", False)},
+            )
+            if input_event.messages is not None:
+                messages = input_event.messages
+                with stage_timer.measure("deep_copy"):
+                    original_client_messages = copy.deepcopy(messages)
+            if input_event.tools is not None:
+                body["tools"] = input_event.tools
 
             # Validate message array size
             if len(messages) > MAX_MESSAGE_ARRAY_LENGTH:
@@ -571,6 +594,15 @@ class AnthropicHandlerMixin:
                 cached = await self.cache.get(messages, model)
                 if cached:
                     cache_hit = True
+                    self.pipeline_extensions.emit(
+                        PipelineStage.INPUT_CACHED,
+                        operation="proxy.request",
+                        request_id=request_id,
+                        provider="anthropic",
+                        model=model,
+                        messages=messages,
+                        metadata={"cache_hit": True, "path": "/v1/messages"},
+                    )
                     optimization_latency = (time.time() - start_time) * 1000
 
                     await self.metrics.record_request(
@@ -858,6 +890,47 @@ class AnthropicHandlerMixin:
             tokens_saved = max(0, original_tokens - optimized_tokens)
             optimization_latency = (time.time() - start_time) * 1000
 
+            routing_markers = summarize_routing_markers(transforms_applied)
+            if routing_markers:
+                routed_event = self.pipeline_extensions.emit(
+                    PipelineStage.INPUT_ROUTED,
+                    operation="proxy.request",
+                    request_id=request_id,
+                    provider="anthropic",
+                    model=model,
+                    messages=optimized_messages,
+                    metadata={
+                        "routing_markers": routing_markers,
+                        "transforms_applied": transforms_applied,
+                    },
+                )
+                if routed_event.messages is not None:
+                    previous_optimized_messages = optimized_messages
+                    optimized_messages = routed_event.messages
+                    if routed_event.messages is not previous_optimized_messages:
+                        optimized_tokens = tokenizer.count_messages(optimized_messages)
+                        tokens_saved = max(0, original_tokens - optimized_tokens)
+
+            compressed_event = self.pipeline_extensions.emit(
+                PipelineStage.INPUT_COMPRESSED,
+                operation="proxy.request",
+                request_id=request_id,
+                provider="anthropic",
+                model=model,
+                messages=optimized_messages,
+                metadata={
+                    "tokens_before": original_tokens,
+                    "tokens_after": optimized_tokens,
+                    "transforms_applied": transforms_applied,
+                },
+            )
+            if compressed_event.messages is not None:
+                previous_optimized_messages = optimized_messages
+                optimized_messages = compressed_event.messages
+                if compressed_event.messages is not previous_optimized_messages:
+                    optimized_tokens = tokenizer.count_messages(optimized_messages)
+                    tokens_saved = max(0, original_tokens - optimized_tokens)
+
             # Hook: post_compress — let hooks observe compression results
             if self.config.hooks and tokens_saved > 0:
                 from headroom.hooks import CompressEvent
@@ -1006,6 +1079,8 @@ class AnthropicHandlerMixin:
                     logger.debug(f"[{request_id}] Traffic learner: {e}")
 
             # Memory: Inject context and tools
+            memory_context_injected = False
+            memory_tools_injected = False
             if self.memory_handler and memory_user_id:
                 # Search and inject memory context
                 if self.memory_handler.config.inject_context:
@@ -1041,6 +1116,7 @@ class AnthropicHandlerMixin:
                                         frozen_message_count=frozen_message_count,
                                     )
                                 )
+                                memory_context_injected = True
                                 logger.info(
                                     f"[{request_id}] Memory: Appended {len(memory_context)} chars "
                                     f"to latest non-frozen user turn (prefix cache-safe)"
@@ -1049,6 +1125,7 @@ class AnthropicHandlerMixin:
                                 optimized_messages = self._inject_system_context(
                                     optimized_messages, memory_context, body=body
                                 )
+                                memory_context_injected = True
                                 logger.info(
                                     f"[{request_id}] Memory: Injected {len(memory_context)} chars of context"
                                 )
@@ -1059,6 +1136,7 @@ class AnthropicHandlerMixin:
                 if self.memory_handler.config.inject_tools:
                     tools, mem_tools_injected = self.memory_handler.inject_tools(tools, "anthropic")
                     if mem_tools_injected:
+                        memory_tools_injected = True
                         tool_names = [
                             t.get("name") or t.get("type", "")
                             for t in tools
@@ -1081,6 +1159,28 @@ class AnthropicHandlerMixin:
                                     f"[{request_id}] Memory: Added beta header: {key}={headers[key]}"
                                 )
 
+            if memory_context_injected or memory_tools_injected:
+                remembered_event = self.pipeline_extensions.emit(
+                    PipelineStage.INPUT_REMEMBERED,
+                    operation="proxy.request",
+                    request_id=request_id,
+                    provider="anthropic",
+                    model=model,
+                    messages=optimized_messages,
+                    tools=tools,
+                    headers=headers,
+                    metadata={
+                        "memory_context_injected": memory_context_injected,
+                        "memory_tools_injected": memory_tools_injected,
+                    },
+                )
+                if remembered_event.messages is not None:
+                    optimized_messages = remembered_event.messages
+                if remembered_event.tools is not None:
+                    tools = remembered_event.tools
+                if remembered_event.headers is not None:
+                    headers = remembered_event.headers
+
             # Query Echo: disabled — hurts prefix caching in long conversations.
             # The echo changes every turn, invalidating the cached prefix.
             # To re-enable, uncomment and set query_echo_enabled on ProxyConfig.
@@ -1090,6 +1190,30 @@ class AnthropicHandlerMixin:
             if tools is not None:
                 tools = self._sort_tools_deterministically(tools)
                 body["tools"] = tools
+
+            presend_event = self.pipeline_extensions.emit(
+                PipelineStage.PRE_SEND,
+                operation="proxy.request",
+                request_id=request_id,
+                provider="anthropic",
+                model=model,
+                messages=optimized_messages,
+                tools=tools,
+                headers=headers,
+                metadata={"path": "/v1/messages", "stream": stream},
+            )
+            previous_presend_messages = optimized_messages
+            if presend_event.messages is not None:
+                optimized_messages = presend_event.messages
+                body["messages"] = optimized_messages
+            if presend_event.tools is not None:
+                tools = self._sort_tools_deterministically(presend_event.tools)
+                body["tools"] = tools
+            if presend_event.headers is not None:
+                headers = presend_event.headers
+            if presend_event.messages is not previous_presend_messages:
+                optimized_tokens = tokenizer.count_messages(body["messages"])
+                tokens_saved = max(0, original_tokens - optimized_tokens)
 
             # Unit 2: mark end of pre-upstream phase. Everything after this
             # point is upstream I/O or post-response bookkeeping.
@@ -1103,6 +1227,16 @@ class AnthropicHandlerMixin:
                 # Route through Bedrock backend
                 try:
                     if stream:
+                        self.pipeline_extensions.emit(
+                            PipelineStage.POST_SEND,
+                            operation="proxy.request",
+                            request_id=request_id,
+                            provider="anthropic",
+                            model=model,
+                            messages=body["messages"],
+                            tools=tools,
+                            metadata={"path": "/v1/messages", "stream": True},
+                        )
                         await _finalize_pre_upstream()
                         return await self._stream_response_bedrock(
                             body,
@@ -1123,6 +1257,34 @@ class AnthropicHandlerMixin:
                             backend_response = await self.anthropic_backend.send_message(
                                 body, headers
                             )
+                        self.pipeline_extensions.emit(
+                            PipelineStage.POST_SEND,
+                            operation="proxy.request",
+                            request_id=request_id,
+                            provider="anthropic",
+                            model=model,
+                            messages=body["messages"],
+                            tools=tools,
+                            response=backend_response.body,
+                            metadata={
+                                "path": "/v1/messages",
+                                "stream": False,
+                                "status_code": backend_response.status_code,
+                            },
+                        )
+                        self.pipeline_extensions.emit(
+                            PipelineStage.RESPONSE_RECEIVED,
+                            operation="proxy.request",
+                            request_id=request_id,
+                            provider="anthropic",
+                            model=model,
+                            response=backend_response.body,
+                            metadata={
+                                "path": "/v1/messages",
+                                "stream": False,
+                                "status_code": backend_response.status_code,
+                            },
+                        )
                         # Non-stream: first-byte and connect are effectively
                         # the same horizon — ``send_message`` awaits until
                         # the response body is fully buffered.
@@ -1214,6 +1376,16 @@ class AnthropicHandlerMixin:
 
             try:
                 if stream:
+                    self.pipeline_extensions.emit(
+                        PipelineStage.POST_SEND,
+                        operation="proxy.request",
+                        request_id=request_id,
+                        provider="anthropic",
+                        model=model,
+                        messages=body["messages"],
+                        tools=tools,
+                        metadata={"path": "/v1/messages", "stream": True},
+                    )
                     await _finalize_pre_upstream()
                     return await self._stream_response(
                         url,
@@ -1236,6 +1408,34 @@ class AnthropicHandlerMixin:
                 else:
                     async with stage_timer.measure("upstream_connect"):
                         response = await self._retry_request("POST", url, headers, body)
+                    self.pipeline_extensions.emit(
+                        PipelineStage.POST_SEND,
+                        operation="proxy.request",
+                        request_id=request_id,
+                        provider="anthropic",
+                        model=model,
+                        messages=body["messages"],
+                        tools=tools,
+                        response=response,
+                        metadata={
+                            "path": "/v1/messages",
+                            "stream": False,
+                            "status_code": response.status_code,
+                        },
+                    )
+                    self.pipeline_extensions.emit(
+                        PipelineStage.RESPONSE_RECEIVED,
+                        operation="proxy.request",
+                        request_id=request_id,
+                        provider="anthropic",
+                        model=model,
+                        response=response,
+                        metadata={
+                            "path": "/v1/messages",
+                            "stream": False,
+                            "status_code": response.status_code,
+                        },
+                    )
                     if (
                         "upstream_first_byte" not in stage_timer
                         and "upstream_connect" in stage_timer

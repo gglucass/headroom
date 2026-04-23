@@ -1,0 +1,44 @@
+"""Runtime helpers for Cursor integrations."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from headroom.providers.claude import proxy_base_url as claude_proxy_base_url
+from headroom.providers.codex import proxy_base_url as codex_proxy_base_url
+
+
+@dataclass(frozen=True)
+class CursorProxyTargets:
+    """Resolved local proxy targets shown in Cursor setup instructions."""
+
+    openai_base_url: str
+    anthropic_base_url: str
+
+
+def build_proxy_targets(port: int) -> CursorProxyTargets:
+    """Build the local proxy URLs shown to Cursor users."""
+    return CursorProxyTargets(
+        openai_base_url=codex_proxy_base_url(port),
+        anthropic_base_url=claude_proxy_base_url(port),
+    )
+
+
+def render_setup_lines(port: int) -> list[str]:
+    """Render the Cursor setup instructions for the local proxy."""
+    targets = build_proxy_targets(port)
+    return [
+        "  Headroom proxy is running. Configure Cursor:",
+        "",
+        "  For OpenAI models:",
+        f"    Base URL:  {targets.openai_base_url}",
+        "    API Key:   your-openai-api-key",
+        "",
+        "  For Anthropic models:",
+        f"    Base URL:  {targets.anthropic_base_url}",
+        "    API Key:   your-anthropic-api-key",
+        "",
+        "  In Cursor:",
+        "    Settings > Models > OpenAI API Key > Override OpenAI Base URL",
+        f"    Set to: {targets.openai_base_url}",
+    ]
