@@ -218,7 +218,7 @@ class ProxyConfig:
 
     # Subscription Window Tracking (Anthropic OAuth accounts)
     subscription_tracking_enabled: bool = True
-    subscription_poll_interval_s: int = 10
+    subscription_poll_interval_s: int = 300
     subscription_active_window_s: int = 60
 
     # Stateless mode — disable all filesystem writes for read-only / container deployments

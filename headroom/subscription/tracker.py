@@ -43,7 +43,7 @@ from headroom.subscription.models import (
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_POLL_INTERVAL_S = 10
+_DEFAULT_POLL_INTERVAL_S = 300
 _DEFAULT_ACTIVE_WINDOW_S = 60
 _PERSIST_FILE_ENV = _paths.HEADROOM_SUBSCRIPTION_STATE_PATH_ENV
 _DEFAULT_PERSIST_DIR = ".headroom"
@@ -70,7 +70,7 @@ class SubscriptionTracker(QuotaTracker):
     alongside the Codex and Copilot trackers.
 
     Args:
-        poll_interval_s: Seconds between polls while active (1–300).
+        poll_interval_s: Seconds between polls while active (1–3600, default 300).
         active_window_s: Seconds since last notify_active call that keeps
             polling alive (default 60 = 1 minute).
         enabled: Set to ``False`` to disable tracking (mirrors
@@ -92,7 +92,7 @@ class SubscriptionTracker(QuotaTracker):
         client: SubscriptionClient | None = None,
     ) -> None:
         self._enabled = enabled
-        self._poll_interval_s = max(1, min(poll_interval_s, 300))
+        self._poll_interval_s = max(1, min(poll_interval_s, 3600))
         self._active_window_s = max(5.0, active_window_s)
         self._persist_path = persist_path or _get_persist_path()
         self._client = client or SubscriptionClient()

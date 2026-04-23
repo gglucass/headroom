@@ -58,6 +58,26 @@ from .main import main
 @click.option("--no-cache", is_flag=True, help="Disable semantic caching")
 @click.option("--no-rate-limit", is_flag=True, help="Disable rate limiting")
 @click.option(
+    "--no-subscription-tracking",
+    is_flag=True,
+    envvar="HEADROOM_NO_SUBSCRIPTION_TRACKING",
+    help=(
+        "Disable the Anthropic Claude Code subscription usage poller "
+        "(GET /api/oauth/usage). Env: HEADROOM_NO_SUBSCRIPTION_TRACKING."
+    ),
+)
+@click.option(
+    "--subscription-poll-interval",
+    type=int,
+    default=None,
+    envvar="HEADROOM_SUBSCRIPTION_POLL_INTERVAL",
+    help=(
+        "Seconds between Anthropic subscription usage polls (1–3600, default 300). "
+        "Lower values give fresher /stats but risk 429s from Anthropic. "
+        "Env: HEADROOM_SUBSCRIPTION_POLL_INTERVAL."
+    ),
+)
+@click.option(
     "--retry-max-attempts",
     type=int,
     default=None,
@@ -254,6 +274,8 @@ def proxy(
     no_optimize: bool,
     no_cache: bool,
     no_rate_limit: bool,
+    no_subscription_tracking: bool,
+    subscription_poll_interval: int | None,
     retry_max_attempts: int | None,
     connect_timeout_seconds: int | None,
     anthropic_pre_upstream_concurrency: int | None,
@@ -381,6 +403,10 @@ def proxy(
         optimize=not no_optimize,
         cache_enabled=not no_cache,
         rate_limit_enabled=not no_rate_limit,
+        subscription_tracking_enabled=not no_subscription_tracking,
+        subscription_poll_interval_s=(
+            subscription_poll_interval if subscription_poll_interval is not None else 300
+        ),
         retry_max_attempts=retry_max_attempts if retry_max_attempts is not None else 3,
         connect_timeout_seconds=connect_timeout_seconds
         if connect_timeout_seconds is not None
