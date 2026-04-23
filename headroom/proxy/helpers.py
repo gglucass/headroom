@@ -293,11 +293,7 @@ def _strip_per_call_annotations(obj: Any) -> Any:
     breaking prompt-level aggregation downstream.
     """
     if isinstance(obj, dict):
-        return {
-            k: _strip_per_call_annotations(v)
-            for k, v in obj.items()
-            if k != "cache_control"
-        }
+        return {k: _strip_per_call_annotations(v) for k, v in obj.items() if k != "cache_control"}
     if isinstance(obj, list):
         return [_strip_per_call_annotations(item) for item in obj]
     return obj
@@ -360,9 +356,7 @@ def compute_turn_id(
     elif system is not None:
         try:
             normalized_system = _strip_per_call_annotations(system)
-            h.update(
-                json.dumps(normalized_system, sort_keys=True, default=str).encode("utf-8")
-            )
+            h.update(json.dumps(normalized_system, sort_keys=True, default=str).encode("utf-8"))
         except (TypeError, ValueError):
             pass
     h.update(b"\0")
