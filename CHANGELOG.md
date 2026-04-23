@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **`headroom unwrap codex` now actually undoes `headroom wrap codex`** —
+  previously there was no `unwrap codex` subcommand at all, so the injected
+  `model_provider = "headroom"` / `[model_providers.headroom]` block stayed
+  in `~/.codex/config.toml` forever and Codex continued routing through the
+  (potentially stopped) proxy, surfacing as `Missing environment variable:
+  OPENAI_API_KEY`. `wrap codex` now snapshots the pre-wrap
+  `config.toml` to `config.toml.headroom-backup` before its first injection,
+  and `unwrap codex` restores that snapshot byte-for-byte (or, if the
+  backup is missing, strips only the Headroom-managed block and leaves
+  surrounding user content intact). Safe no-op when run without a prior
+  wrap. Reported by @raenaryl in Discord.
 - **`headroom learn` no longer clobbers prior recommendations on re-run** —
   the marker block in `CLAUDE.md` / `MEMORY.md` is now merged with the
   prior block instead of wholesale-replaced. Sections re-surfaced by the
