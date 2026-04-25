@@ -408,6 +408,61 @@ new file mode 100644
 +
 +x = hello()
 """
+    # Bug-fix coverage: each of these exercises a path that was silently
+    # dropping information before the 2026-04-25 fix. They produce *new*
+    # fixtures (different SHA256), so existing 20 fixtures stay unchanged.
+    rename_diff = """diff --git a/auth/old_handler.py b/auth/new_handler.py
+similarity index 92%
+rename from auth/old_handler.py
+rename to auth/new_handler.py
+--- a/auth/old_handler.py
++++ b/auth/new_handler.py
+@@ -1,8 +1,8 @@
+ import os
+ import sys
+-from auth import legacy
++from auth import modern
+
+ def authenticate(user):
+     return user.is_valid()
+"""
+    combined_diff = """diff --git a/merge_target.py b/merge_target.py
+--- a/merge_target.py
++++ b/merge_target.py
+@@@ -1,5 -1,5 +1,6 @@@
+  unchanged_a
+  unchanged_b
+- old_from_branch_1
+ -old_from_branch_2
+++new_in_merge
+ +new_added_too
+  unchanged_c
+"""
+    no_newline_diff = """diff --git a/last.txt b/last.txt
+--- a/last.txt
++++ b/last.txt
+@@ -1,8 +1,8 @@
+-old_first
++new_first
+ ctx_a
+ ctx_b
+ ctx_c
+ ctx_d
+ ctx_e
+ ctx_f
+\\ No newline at end of file
+"""
+    pre_diff_content = (
+        """commit abc1234567890abcdef
+Author: Test <t@example.com>
+Date:   Mon Apr 25 12:00:00 2026
+
+    Refactor: rename and modify auth module
+
+"""
+        + rename_diff
+    )
+
     out: list[str] = []
     for i in range(7):
         out.append(f"{tiny}# variant {i}")
@@ -417,7 +472,13 @@ new file mode 100644
         out.append(f"{big_diff}\n# variant {i}")
     for i in range(3):
         out.append(f"{new_file}# variant {i}")
-    return out[:20] if len(out) >= 20 else out + [tiny] * (20 - len(out))
+    # Bug-fix path coverage. Padded with the same `# variant N` trick used
+    # above so each input is unique (avoids fixture-hash collisions).
+    out.append(f"{rename_diff}\n# bugfix:rename")
+    out.append(f"{combined_diff}\n# bugfix:combined-diff-3way")
+    out.append(f"{no_newline_diff}\n# bugfix:no-newline-marker")
+    out.append(f"{pre_diff_content}\n# bugfix:pre-diff-content")
+    return out
 
 
 def _varied_text_inputs() -> list[str]:

@@ -31,7 +31,7 @@ class TestDiffParsing:
      return 0
 """
         compressor = DiffCompressor()
-        diff_files = compressor._parse_diff(content.split("\n"))
+        _, diff_files = compressor._parse_diff(content.split("\n"))
 
         assert len(diff_files) == 1
         assert diff_files[0].header == "diff --git a/src/main.py b/src/main.py"
@@ -59,7 +59,7 @@ diff --git a/file2.py b/file2.py
  keep2
 """
         compressor = DiffCompressor()
-        diff_files = compressor._parse_diff(content.split("\n"))
+        _, diff_files = compressor._parse_diff(content.split("\n"))
 
         assert len(diff_files) == 2
         assert "file1.py" in diff_files[0].header
@@ -84,7 +84,7 @@ diff --git a/file2.py b/file2.py
      return x
 """
         compressor = DiffCompressor()
-        diff_files = compressor._parse_diff(content.split("\n"))
+        _, diff_files = compressor._parse_diff(content.split("\n"))
 
         assert len(diff_files) == 1
         assert len(diff_files[0].hunks) == 2
@@ -102,7 +102,7 @@ new file mode 100644
 +    return None
 """
         compressor = DiffCompressor()
-        diff_files = compressor._parse_diff(content.split("\n"))
+        _, diff_files = compressor._parse_diff(content.split("\n"))
 
         assert len(diff_files) == 1
         assert diff_files[0].is_new_file is True
@@ -119,7 +119,7 @@ deleted file mode 100644
 -    pass
 """
         compressor = DiffCompressor()
-        diff_files = compressor._parse_diff(content.split("\n"))
+        _, diff_files = compressor._parse_diff(content.split("\n"))
 
         assert len(diff_files) == 1
         assert diff_files[0].is_deleted_file is True
@@ -131,7 +131,7 @@ deleted file mode 100644
 Binary files a/image.png and b/image.png differ
 """
         compressor = DiffCompressor()
-        diff_files = compressor._parse_diff(content.split("\n"))
+        _, diff_files = compressor._parse_diff(content.split("\n"))
 
         assert len(diff_files) == 1
         assert diff_files[0].is_binary is True
@@ -354,7 +354,7 @@ class TestHunkScoring:
  return result
 """
         compressor = DiffCompressor()
-        diff_files = compressor._parse_diff(content.split("\n"))
+        _, diff_files = compressor._parse_diff(content.split("\n"))
         compressor._score_hunks(diff_files, "fix error bug")
 
         # Second hunk should have higher score (contains "fix" and "bug")
@@ -671,3 +671,169 @@ class TestConfigOptions:
 
         assert "-del1" in result.compressed
         assert "-del2" in result.compressed
+
+
+# ─── Bug-fix tests (2026-04-25): four silent information-loss paths ─────────
+#
+# Before the fix, the parser captured these patterns but the emitter dropped
+# them, or the regex didn't match them at all. Each test exercises one of
+# the four paths the same way the Rust unit tests do.
+
+
+def _cfg_below_threshold():
+    """Small config so the parser+emitter actually run on test inputs."""
+    from headroom.transforms.diff_compressor import DiffCompressorConfig
+
+    return DiffCompressorConfig(min_lines_for_ccr=5)
+
+
+class TestBugfixRenamePreservation:
+    """rename/similarity/dissimilarity/copy markers were captured into
+    is_renamed=True and then dropped by the emitter. Output looked like a
+    plain modification of the old path."""
+
+    def test_rename_with_similarity_index_preserved(self):
+        from headroom.transforms.diff_compressor import DiffCompressor
+
+        diff = (
+            "diff --git a/old.py b/new.py\n"
+            "similarity index 92%\n"
+            "rename from old.py\n"
+            "rename to new.py\n"
+            "--- a/old.py\n"
+            "+++ b/new.py\n"
+            "@@ -1,3 +1,3 @@\n"
+            " ctx_a\n"
+            "-old\n"
+            "+new\n"
+            " ctx_b\n"
+        )
+        result = DiffCompressor(_cfg_below_threshold()).compress(diff)
+        assert "similarity index 92%" in result.compressed
+        assert "rename from old.py" in result.compressed
+        assert "rename to new.py" in result.compressed
+
+    def test_dissimilarity_index_preserved(self):
+        from headroom.transforms.diff_compressor import DiffCompressor
+
+        diff = (
+            "diff --git a/x.py b/y.py\n"
+            "dissimilarity index 60%\n"
+            "rename from x.py\n"
+            "rename to y.py\n"
+            "--- a/x.py\n"
+            "+++ b/y.py\n"
+            "@@ -1 +1 @@\n"
+            "-a\n"
+            "+b\n"
+        )
+        result = DiffCompressor(_cfg_below_threshold()).compress(diff)
+        assert "dissimilarity index 60%" in result.compressed
+
+    def test_copy_markers_preserved(self):
+        from headroom.transforms.diff_compressor import DiffCompressor
+
+        diff = (
+            "diff --git a/orig.py b/dup.py\n"
+            "similarity index 100%\n"
+            "copy from orig.py\n"
+            "copy to dup.py\n"
+            "--- a/orig.py\n"
+            "+++ b/dup.py\n"
+            "@@ -1 +1 @@\n"
+            "-old\n"
+            "+new\n"
+        )
+        result = DiffCompressor(_cfg_below_threshold()).compress(diff)
+        assert "copy from orig.py" in result.compressed
+        assert "copy to dup.py" in result.compressed
+
+
+class TestBugfixCombinedDiff:
+    """Combined-diff `@@@` hunks from merge commits had ALL content silently
+    dropped because the regex hardcoded `@@`."""
+
+    def test_3way_combined_diff_content_preserved(self):
+        from headroom.transforms.diff_compressor import DiffCompressor
+
+        diff = (
+            "diff --git a/merge.py b/merge.py\n"
+            "--- a/merge.py\n"
+            "+++ b/merge.py\n"
+            "@@@ -1,3 -1,3 +1,4 @@@\n"
+            "  unchanged_a\n"
+            "- old_branch_1\n"
+            " -old_branch_2\n"
+            "++new_in_merge\n"
+            " +new_added\n"
+            "  unchanged_b\n"
+        )
+        result = DiffCompressor(_cfg_below_threshold()).compress(diff)
+        assert "@@@ -1,3 -1,3 +1,4 @@@" in result.compressed
+        assert "++new_in_merge" in result.compressed
+        assert result.files_affected > 0
+
+
+class TestBugfixNoNewlineMarker:
+    r"""`\ No newline at end of file` got dropped by context trim whenever it
+    was further than max_context_lines from a +/- change."""
+
+    def test_no_newline_marker_survives_distance(self):
+        from headroom.transforms.diff_compressor import DiffCompressor
+
+        diff = (
+            "diff --git a/last.txt b/last.txt\n"
+            "--- a/last.txt\n"
+            "+++ b/last.txt\n"
+            "@@ -1,8 +1,8 @@\n"
+            "-old_first\n"
+            "+new_first\n"
+            " ctx_a\n"
+            " ctx_b\n"
+            " ctx_c\n"
+            " ctx_d\n"
+            " ctx_e\n"
+            " ctx_f\n"
+            "\\ No newline at end of file\n"
+        )
+        result = DiffCompressor(_cfg_below_threshold()).compress(diff)
+        assert "\\ No newline at end of file" in result.compressed
+
+
+class TestBugfixPreDiffContent:
+    """Anything before the first `diff --git` (commit headers, email-style
+    metadata) was silently dropped."""
+
+    def test_commit_header_preserved(self):
+        from headroom.transforms.diff_compressor import DiffCompressor
+
+        diff = (
+            "commit abc1234567890abcdef\n"
+            "Author: Tester <t@example.com>\n"
+            "Date:   Mon Apr 25 12:00:00 2026\n"
+            "\n"
+            "    Refactor: rename and modify\n"
+            "\n"
+            "diff --git a/x.py b/x.py\n"
+            "--- a/x.py\n"
+            "+++ b/x.py\n"
+            "@@ -1 +1 @@\n"
+            "-a\n"
+            "+b\n"
+        )
+        result = DiffCompressor(_cfg_below_threshold()).compress(diff)
+        assert result.compressed.startswith("commit abc1234567890abcdef")
+        assert "Author: Tester" in result.compressed
+        assert "Refactor: rename and modify" in result.compressed
+        assert "diff --git a/x.py b/x.py" in result.compressed
+        assert "-a" in result.compressed
+        assert "+b" in result.compressed
+
+    def test_no_pre_diff_content_does_not_add_blank_line(self):
+        """Edge case: when there's no pre-diff content, output must NOT
+        gain a leading blank line from a stray empty-list prepend."""
+        from headroom.transforms.diff_compressor import DiffCompressor
+
+        diff = "diff --git a/x.py b/x.py\n--- a/x.py\n+++ b/x.py\n@@ -1 +1 @@\n-a\n+b\n"
+        result = DiffCompressor(_cfg_below_threshold()).compress(diff)
+        assert result.compressed.startswith("diff --git a/x.py b/x.py")

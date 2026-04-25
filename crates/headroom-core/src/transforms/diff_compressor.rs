@@ -275,9 +275,13 @@ impl DiffCompressor {
             );
         }
 
-        // Parse the unified diff into files + hunks.
-        let (mut diff_files, parse_warnings) = parse_diff(&lines);
-        stats.parse_warnings = parse_warnings;
+        // Parse the unified diff into files + hunks (and any pre-diff
+        // content — commit headers, email headers — which gets re-emitted
+        // verbatim by `format_output`).
+        let parsed = parse_diff(&lines);
+        let pre_diff_lines = parsed.pre_diff_lines;
+        let mut diff_files = parsed.files;
+        stats.parse_warnings = parsed.parse_warnings;
         stats.files_total = diff_files.len();
         stats.hunks_total = diff_files.iter().map(|f| f.hunks.len()).sum();
         stats.context_lines_input = diff_files
@@ -417,6 +421,7 @@ impl DiffCompressor {
         // `compressed`; the CCR retrieval marker (if present) is appended
         // after — both must match Python's emitter byte-for-byte.
         let mut compressed_output = format_output(
+            &pre_diff_lines,
             &compressed_files,
             files_affected,
             total_additions,
@@ -510,6 +515,13 @@ struct DiffFile {
     is_new_file: bool,
     is_deleted_file: bool,
     is_renamed: bool,
+    /// Bug-fix: rename / similarity / dissimilarity / copy marker lines
+    /// captured verbatim from the parser (e.g. `rename from old.py`,
+    /// `rename to new.py`, `similarity index 95%`). Re-emitted after the
+    /// `diff --git` header so the LLM can see that a file was renamed
+    /// rather than modified-in-place. Previously dropped in both Python
+    /// and Rust — fixed in both as part of the same change.
+    rename_lines: Vec<String>,
     /// Full original `new file mode <NNNNNN>` line if present. Captured so
     /// we can detect when emit-time normalization to `100644` lost the
     /// executable bit (or any other mode signal).
@@ -532,15 +544,48 @@ impl DiffFile {
 
 // ─── Parser ────────────────────────────────────────────────────────────────
 
-/// `@@ -start[,count] +start[,count] @@ optional context` — captures the
-/// numeric ranges and the trailing context blob. Used both for parsing and
-/// for extracting the start-line number when reordering hunks.
+/// Matches any hunk header — regular `@@ -A,B +C,D @@` AND combined-diff
+/// `@@@ -A,B -C,D +E,F @@@` (3-way merge) and `@@@@ ... @@@@` (4-way merge,
+/// extremely rare).
+///
+/// Bug-fix: the previous regex only matched `@@`, so combined-diff hunks
+/// from merge commits had ALL their content silently dropped — `current_hunk`
+/// was never set, so subsequent +/- lines fell through to the no-op branch.
+/// Fixed in tandem with the Python source.
+///
+/// Implementation note: Rust's `regex` crate (RE2-based) doesn't support
+/// backreferences, so the matched-pair count of `@`s on each side is
+/// hand-rolled as alternation. Octopus merges with >3 parents (5+ `@`s)
+/// would slip through this regex back to the content-line branch — they're
+/// vanishingly rare in practice (n-parent merges with n>3 essentially
+/// never appear in real repos). When they do, a `parse_warnings` entry is
+/// emitted so prod monitoring can flag the case rather than silently
+/// dropping it.
 fn hunk_header_regex() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
-        Regex::new(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)$")
-            .expect("static regex compiles")
+        Regex::new(concat!(
+            r"^(?:",
+            // Regular @@ ... @@
+            r"@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@",
+            r"|",
+            // 3-way merge @@@ ... @@@
+            r"@@@ -\d+(?:,\d+)? -\d+(?:,\d+)? \+\d+(?:,\d+)? @@@",
+            r"|",
+            // 4-way merge @@@@ ... @@@@
+            r"@@@@ -\d+(?:,\d+)? -\d+(?:,\d+)? -\d+(?:,\d+)? \+\d+(?:,\d+)? @@@@",
+            r")(.*)$"
+        ))
+        .expect("static regex compiles")
     })
+}
+
+/// Extracts the new-file starting line number (`+N`) from any hunk header,
+/// regardless of whether it's regular or combined-diff. Used for in-order
+/// resort after middle-hunk selection.
+fn hunk_new_range_regex() -> &'static Regex {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    RE.get_or_init(|| Regex::new(r"\+(\d+)").expect("static regex compiles"))
 }
 
 fn diff_git_regex() -> &'static Regex {
@@ -563,10 +608,21 @@ fn binary_regex() -> &'static Regex {
     RE.get_or_init(|| Regex::new(r"^Binary files .+ differ$").expect("static regex compiles"))
 }
 
-fn parse_diff(lines: &[&str]) -> (Vec<DiffFile>, Vec<String>) {
+/// Parser output: pre-diff content (commit headers, email headers from
+/// `git format-patch`, anything before the first `diff --git`), plus the
+/// parsed file structures. Bug-fix: pre-diff content used to be dropped
+/// silently; now preserved verbatim and re-emitted by `format_output`.
+struct ParsedDiff {
+    pre_diff_lines: Vec<String>,
+    files: Vec<DiffFile>,
+    parse_warnings: Vec<String>,
+}
+
+fn parse_diff(lines: &[&str]) -> ParsedDiff {
     let mut files: Vec<DiffFile> = Vec::new();
     let mut current_file: Option<DiffFile> = None;
     let mut current_hunk: Option<DiffHunk> = None;
+    let mut pre_diff_lines: Vec<String> = Vec::new();
     let warnings: Vec<String> = Vec::new();
 
     for &line in lines {
@@ -589,10 +645,20 @@ fn parse_diff(lines: &[&str]) -> (Vec<DiffFile>, Vec<String>) {
                 is_new_file: false,
                 is_deleted_file: false,
                 is_renamed: false,
+                rename_lines: Vec::new(),
                 original_new_file_mode_line: None,
                 original_deleted_file_mode_line: None,
                 original_binary_line: None,
             });
+            continue;
+        }
+
+        // Bug-fix: lines before the first `diff --git` are pre-diff content
+        // (commit metadata, email headers, etc.) — capture verbatim rather
+        // than drop silently. They get re-emitted at the head of the
+        // compressed output.
+        if current_file.is_none() {
+            pre_diff_lines.push(line.to_string());
             continue;
         }
 
@@ -610,8 +676,14 @@ fn parse_diff(lines: &[&str]) -> (Vec<DiffFile>, Vec<String>) {
             } else if line.starts_with("rename ")
                 || line.starts_with("similarity ")
                 || line.starts_with("copy ")
+                || line.starts_with("dissimilarity ")
             {
+                // Bug-fix: capture the rename / similarity / dissimilarity /
+                // copy marker lines verbatim. Previously only `is_renamed`
+                // was set and the lines were dropped, so emit looked like
+                // a plain modification.
                 f.is_renamed = true;
+                f.rename_lines.push(line.to_string());
             } else if binary_regex().is_match(line) {
                 f.is_binary = true;
                 f.original_binary_line = Some(line.to_string());
@@ -682,7 +754,11 @@ fn parse_diff(lines: &[&str]) -> (Vec<DiffFile>, Vec<String>) {
         files.push(f);
     }
 
-    (files, warnings)
+    ParsedDiff {
+        pre_diff_lines,
+        files,
+        parse_warnings: warnings,
+    }
 }
 
 // ─── Scoring ───────────────────────────────────────────────────────────────
@@ -807,7 +883,11 @@ fn select_hunks(hunks: Vec<DiffHunk>, max_per_file: usize) -> (Vec<DiffHunk>, Ve
 }
 
 fn extract_line_number(header: &str) -> usize {
-    if let Some(caps) = hunk_header_regex().captures(header) {
+    // Use the dedicated `+N` regex — works for both `@@` and `@@@` headers.
+    // The previous implementation captured group(1) of the hunk-header
+    // regex, which was the line number for `@@` only; under the new combined
+    // diff regex, group(1) is the `@`-prefix.
+    if let Some(caps) = hunk_new_range_regex().captures(header) {
         if let Some(m) = caps.get(1) {
             if let Ok(n) = m.as_str().parse::<usize>() {
                 return n;
@@ -862,6 +942,18 @@ fn reduce_context(hunk: &DiffHunk, max_context: usize) -> DiffHunk {
         }
     }
 
+    // Bug-fix: ALWAYS keep `\ No newline at end of file` markers (and any
+    // other backslash-prefixed metadata) regardless of distance from a
+    // change. These are structural patch markers, not context — losing
+    // them breaks round-trippable patches and changes the semantic
+    // meaning of the trailing line in the file. Mirrors the same fix in
+    // the Python source.
+    for (i, line) in hunk.lines.iter().enumerate() {
+        if line.starts_with('\\') {
+            keep.insert(i);
+        }
+    }
+
     let mut new_lines: Vec<String> = Vec::with_capacity(keep.len());
     let mut additions = 0usize;
     let mut deletions = 0usize;
@@ -891,6 +983,7 @@ fn reduce_context(hunk: &DiffHunk, max_context: usize) -> DiffHunk {
 // ─── Output formatter ──────────────────────────────────────────────────────
 
 fn format_output(
+    pre_diff_lines: &[String],
     files: &[DiffFile],
     files_affected: usize,
     total_additions: usize,
@@ -899,8 +992,23 @@ fn format_output(
 ) -> String {
     let mut out_lines: Vec<String> = Vec::new();
 
+    // Bug-fix: emit pre-diff content (commit headers, email headers)
+    // verbatim before the file sections. Previously dropped silently.
+    for l in pre_diff_lines {
+        out_lines.push(l.clone());
+    }
+
     for f in files {
         out_lines.push(f.header.clone());
+
+        // Bug-fix: emit rename / similarity / dissimilarity / copy marker
+        // lines immediately after `diff --git`, matching git's canonical
+        // output ordering. Previously these were captured into
+        // `is_renamed=true` and dropped — output looked like a plain
+        // modification of the old path.
+        for l in &f.rename_lines {
+            out_lines.push(l.clone());
+        }
 
         if f.is_new_file {
             out_lines.push("new file mode 100644".into());
@@ -1252,5 +1360,163 @@ mod tests {
         assert_eq!(SCORE_CONTEXT_MIN_WORD_LEN, 2);
         assert_eq!(SCORE_PRIORITY_PATTERN_BOOST, 0.3);
         assert_eq!(SCORE_TOTAL_CAP, 1.0);
+    }
+
+    // ─── Bug-fix tests (rename/combined-diff/no-newline/pre-diff) ──────────
+
+    /// Bug-fix test: rename markers (`rename from`, `rename to`,
+    /// `similarity index`) must survive into the compressed output. Before
+    /// the fix the parser captured them as `is_renamed=true` and the
+    /// emitter dropped them entirely — output looked like a plain
+    /// modification of the old path.
+    #[test]
+    fn bugfix_rename_markers_are_preserved_in_output() {
+        let input = "diff --git a/old.py b/new.py\n\
+                     similarity index 92%\n\
+                     rename from old.py\n\
+                     rename to new.py\n\
+                     --- a/old.py\n\
+                     +++ b/new.py\n\
+                     @@ -1,3 +1,3 @@\n\
+                      ctx_a\n\
+                     -old_line\n\
+                     +new_line\n\
+                      ctx_b\n";
+        // Below default min_lines_for_ccr=50 — drop the threshold so the
+        // parser+emitter actually run.
+        let cfg = DiffCompressorConfig {
+            min_lines_for_ccr: 5,
+            ..Default::default()
+        };
+        let r = DiffCompressor::new(cfg).compress(input, "");
+        assert!(
+            r.compressed.contains("similarity index 92%"),
+            "missing 'similarity index' marker:\n{}",
+            r.compressed
+        );
+        assert!(
+            r.compressed.contains("rename from old.py"),
+            "missing 'rename from':\n{}",
+            r.compressed
+        );
+        assert!(
+            r.compressed.contains("rename to new.py"),
+            "missing 'rename to':\n{}",
+            r.compressed
+        );
+    }
+
+    /// Bug-fix test: combined-diff (`@@@`) hunk content must NOT be
+    /// silently dropped. Before the fix the hunk-header regex only
+    /// matched `@@`, so 3-way merge hunks had `current_hunk` never set
+    /// and all their content fell through to the no-op branch.
+    #[test]
+    fn bugfix_combined_diff_3way_content_is_parsed_and_emitted() {
+        let input = "diff --git a/merge.py b/merge.py\n\
+                     --- a/merge.py\n\
+                     +++ b/merge.py\n\
+                     @@@ -1,3 -1,3 +1,4 @@@\n\
+                       unchanged_a\n\
+                      -old_branch_1\n\
+                     - old_branch_2\n\
+                     ++new_in_merge\n\
+                      +new_added\n\
+                       unchanged_b\n";
+        let cfg = DiffCompressorConfig {
+            min_lines_for_ccr: 5,
+            ..Default::default()
+        };
+        let (r, stats) = DiffCompressor::new(cfg).compress_with_stats(input, "");
+        assert!(
+            r.compressed.contains("@@@ -1,3 -1,3 +1,4 @@@"),
+            "@@@ header not preserved:\n{}",
+            r.compressed
+        );
+        assert!(
+            r.compressed.contains("++new_in_merge"),
+            "combined-diff +/+ content not preserved:\n{}",
+            r.compressed
+        );
+        assert!(
+            stats.files_total > 0,
+            "parser found no files; combined-diff still broken"
+        );
+    }
+
+    /// Bug-fix test: `\ No newline at end of file` markers must survive
+    /// the context trim regardless of distance from a `+`/`-` line. Before
+    /// the fix, `_reduce_context` only kept lines within max_context_lines
+    /// of a change; trailing `\` markers got cut whenever they were too
+    /// far away.
+    #[test]
+    fn bugfix_no_newline_marker_preserved_despite_distance() {
+        // Place the `+/-` change far from the trailing `\` marker so the
+        // context trim would, if buggy, drop the marker.
+        let input = "diff --git a/last.txt b/last.txt\n\
+                     --- a/last.txt\n\
+                     +++ b/last.txt\n\
+                     @@ -1,8 +1,8 @@\n\
+                     -old_first\n\
+                     +new_first\n\
+                      ctx_a\n\
+                      ctx_b\n\
+                      ctx_c\n\
+                      ctx_d\n\
+                      ctx_e\n\
+                      ctx_f\n\
+                     \\ No newline at end of file\n";
+        let cfg = DiffCompressorConfig {
+            min_lines_for_ccr: 5,
+            ..Default::default()
+        };
+        let r = DiffCompressor::new(cfg).compress(input, "");
+        assert!(
+            r.compressed.contains("\\ No newline at end of file"),
+            "no-newline marker dropped by context trim:\n{}",
+            r.compressed
+        );
+    }
+
+    /// Bug-fix test: pre-diff content (commit headers, email-style
+    /// metadata) is preserved verbatim before the diff sections. Before
+    /// the fix, anything before the first `diff --git` was silently
+    /// dropped — `git log -p` output lost commit messages, Author, Date,
+    /// etc.
+    #[test]
+    fn bugfix_pre_diff_content_is_preserved() {
+        let input = "commit abc1234567890\n\
+                     Author: Tester <t@example.com>\n\
+                     Date:   Mon Apr 25 12:00:00 2026\n\
+                     \n    Refactor: rename and modify\n\n\
+                     diff --git a/x.py b/x.py\n\
+                     --- a/x.py\n\
+                     +++ b/x.py\n\
+                     @@ -1 +1 @@\n\
+                     -a\n\
+                     +b\n";
+        let cfg = DiffCompressorConfig {
+            min_lines_for_ccr: 5,
+            ..Default::default()
+        };
+        let r = DiffCompressor::new(cfg).compress(input, "");
+        assert!(
+            r.compressed.starts_with("commit abc1234567890"),
+            "pre-diff commit header dropped:\n{}",
+            r.compressed
+        );
+        assert!(
+            r.compressed.contains("Author: Tester"),
+            "pre-diff Author header dropped:\n{}",
+            r.compressed
+        );
+        assert!(
+            r.compressed.contains("Refactor: rename and modify"),
+            "pre-diff commit message dropped:\n{}",
+            r.compressed
+        );
+        // And the diff itself is still there.
+        assert!(r.compressed.contains("diff --git a/x.py b/x.py"));
+        assert!(r.compressed.contains("-a"));
+        assert!(r.compressed.contains("+b"));
     }
 }

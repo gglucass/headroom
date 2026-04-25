@@ -25,8 +25,11 @@ Key Patterns to Preserve:
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass, field
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -58,6 +61,20 @@ class DiffFile:
     is_new_file: bool = False
     is_deleted_file: bool = False
     is_renamed: bool = False
+    # Bug-fix: rename / copy / similarity / dissimilarity marker lines that
+    # were emitted by git BETWEEN `diff --git` and `--- a/` (e.g. `rename
+    # from old.py`, `rename to new.py`, `similarity index 95%`). Previously
+    # we set is_renamed=True and discarded the lines, so the output looked
+    # like a plain modification. Now captured verbatim and re-emitted in
+    # `_format_output`.
+    rename_lines: list[str] = field(default_factory=list)
+    # Bug-fix: original `new file mode <NNNNNN>` / `deleted file mode
+    # <NNNNNN>` / `Binary files X and Y differ` lines. Emit normalizes to
+    # `100644` / bare `Binary files differ`; capturing the originals lets
+    # the caller observe the loss via logging.
+    original_new_file_mode_line: str | None = None
+    original_deleted_file_mode_line: str | None = None
+    original_binary_line: str | None = None
 
     @property
     def total_additions(self) -> int:
@@ -139,8 +156,17 @@ class DiffCompressor:
     # Pattern for +++ b/file or +++ /dev/null
     _NEW_FILE_PATTERN = re.compile(r"^\+\+\+ (b/(.+)|/dev/null)$")
 
-    # Pattern for hunk header @@ -start,count +start,count @@ optional context
-    _HUNK_HEADER_PATTERN = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)$")
+    # Pattern for ANY hunk header — matches both regular `@@ -A,B +C,D @@`
+    # and combined-diff `@@@ -A,B -C,D +E,F @@@` (and 4-way `@@@@ ... @@@@`).
+    # Group 1 is the @-prefix (so closing @@ can backreference). Bug-fix:
+    # previously hardcoded to `@@`, which silently dropped all content from
+    # combined-diff hunks (merge commits) — `current_hunk` was never set so
+    # subsequent +/- lines fell through to the no-op branch.
+    _HUNK_HEADER_PATTERN = re.compile(r"^(@@+) (?:-\d+(?:,\d+)? )+\+\d+(?:,\d+)? \1(.*)$")
+
+    # Used to extract the new-file starting line number for in-order resort
+    # after middle-hunk selection. Works for both regular and combined diffs.
+    _HUNK_NEW_RANGE_PATTERN = re.compile(r"\+(\d+)")
 
     # Pattern for binary file indication
     _BINARY_PATTERN = re.compile(r"^Binary files .+ differ$")
@@ -148,7 +174,9 @@ class DiffCompressor:
     # Patterns for new/deleted file mode
     _NEW_FILE_MODE_PATTERN = re.compile(r"^new file mode")
     _DELETED_FILE_MODE_PATTERN = re.compile(r"^deleted file mode")
-    _RENAME_PATTERN = re.compile(r"^(rename|similarity|copy) ")
+    # Bug-fix: extended to include `dissimilarity` (low-similarity rename
+    # marker, real git output). Previously dropped silently.
+    _RENAME_PATTERN = re.compile(r"^(rename|similarity|copy|dissimilarity) ")
 
     # Priority patterns for context-aware hunk selection (centralized)
     from headroom.transforms.error_detection import PRIORITY_PATTERNS_DIFF
@@ -188,8 +216,12 @@ class DiffCompressor:
                 hunks_removed=0,
             )
 
-        # Parse diff into structured format
-        diff_files = self._parse_diff(lines)
+        # Parse diff into structured format. Returns pre-diff content
+        # (commit headers, email headers from `git format-patch`, etc.)
+        # alongside the parsed files. Bug-fix: previously this content was
+        # silently dropped; now it's preserved verbatim before the
+        # compressed file sections in the output.
+        pre_diff_lines, diff_files = self._parse_diff(lines)
 
         if not diff_files:
             return DiffCompressionResult(
@@ -209,8 +241,15 @@ class DiffCompressor:
         # Compress each file's hunks
         compressed_files, stats = self._compress_files(diff_files)
 
-        # Format output
+        # Format output, prepending pre-diff content if any.
         compressed_output = self._format_output(compressed_files, stats)
+        if pre_diff_lines:
+            compressed_output = "\n".join(pre_diff_lines) + "\n" + compressed_output
+
+        # Observability: log lossy-emit signals so prod monitoring can
+        # alert on outlier diffs. Counts only — no PII / file content.
+        self._log_loss_signals(diff_files, stats)
+
         compressed_line_count = len(compressed_output.split("\n"))
 
         # Store in CCR if significant compression
@@ -232,18 +271,22 @@ class DiffCompressor:
             cache_key=cache_key,
         )
 
-    def _parse_diff(self, lines: list[str]) -> list[DiffFile]:
+    def _parse_diff(self, lines: list[str]) -> tuple[list[str], list[DiffFile]]:
         """Parse diff content into structured format.
 
         Args:
             lines: Lines of diff content.
 
         Returns:
-            List of DiffFile objects.
+            Tuple of (pre_diff_lines, diff_files). `pre_diff_lines` are any
+            lines before the first ``diff --git`` (commit headers from
+            ``git log -p``, email headers from ``git format-patch``, etc.) —
+            previously dropped, now preserved verbatim and re-emitted.
         """
         diff_files: list[DiffFile] = []
         current_file: DiffFile | None = None
         current_hunk: DiffHunk | None = None
+        pre_diff_lines: list[str] = []
         i = 0
 
         while i < len(lines):
@@ -266,16 +309,37 @@ class DiffCompressor:
                 i += 1
                 continue
 
-            # Check for file mode indicators
+            # Bug-fix: any line before the first `diff --git` is pre-diff
+            # content (commit headers, email headers). Capture for verbatim
+            # re-emission rather than dropping.
+            if current_file is None:
+                pre_diff_lines.append(line)
+                i += 1
+                continue
+
+            # Check for file mode indicators / rename / binary markers.
+            # Capture the original line in addition to the boolean so the
+            # logger / sidecar observability can surface emit-time
+            # normalization losses.
             if current_file:
                 if self._NEW_FILE_MODE_PATTERN.match(line):
                     current_file.is_new_file = True
+                    current_file.original_new_file_mode_line = line
                 elif self._DELETED_FILE_MODE_PATTERN.match(line):
                     current_file.is_deleted_file = True
+                    current_file.original_deleted_file_mode_line = line
                 elif self._RENAME_PATTERN.match(line):
                     current_file.is_renamed = True
+                    # Bug-fix: capture rename marker lines so they get
+                    # re-emitted. Previously the boolean was set but the
+                    # actual `rename from` / `rename to` / `similarity index`
+                    # lines were discarded — output looked like a plain
+                    # modification and the LLM had no way to know a file
+                    # was renamed.
+                    current_file.rename_lines.append(line)
                 elif self._BINARY_PATTERN.match(line):
                     current_file.is_binary = True
+                    current_file.original_binary_line = line
 
             # Check for --- a/file
             if self._OLD_FILE_PATTERN.match(line):
@@ -291,7 +355,9 @@ class DiffCompressor:
                 i += 1
                 continue
 
-            # Check for hunk header
+            # Check for hunk header (regular `@@` or combined-diff `@@@`+).
+            # Bug-fix: previously `@@@` headers didn't match, so combined
+            # diffs (merge commits) had ALL their content silently dropped.
             if self._HUNK_HEADER_PATTERN.match(line):
                 # Save previous hunk
                 if current_hunk and current_file:
@@ -316,7 +382,10 @@ class DiffCompressor:
                     current_hunk.context_lines += 1
                     current_hunk.lines.append(line)
                 else:
-                    # Other line (e.g., "\ No newline at end of file")
+                    # Other line (e.g., "\ No newline at end of file" — note
+                    # leading backslash). Preserved here; `_reduce_context`
+                    # force-keeps `\` lines regardless of distance from
+                    # changes, so they survive the context trim.
                     current_hunk.lines.append(line)
 
             i += 1
@@ -327,7 +396,7 @@ class DiffCompressor:
         if current_file:
             diff_files.append(current_file)
 
-        return diff_files
+        return pre_diff_lines, diff_files
 
     def _score_hunks(self, diff_files: list[DiffFile], context: str) -> None:
         """Score hunks by relevance to context.
@@ -401,7 +470,12 @@ class DiffCompressor:
             stats["hunks_kept"] += len(compressed_hunks)
             stats["hunks_removed"] += len(diff_file.hunks) - len(compressed_hunks)
 
-            # Create compressed file with reduced context in hunks
+            # Create compressed file with reduced context in hunks. Bug-fix:
+            # previously this constructor dropped `rename_lines` and the
+            # `original_*_line` fields by omission — they were captured in
+            # the parser but never propagated to `_format_output`, so the
+            # emit looked exactly like the buggy old behavior. Carry them
+            # all through.
             new_file = DiffFile(
                 header=diff_file.header,
                 old_file=diff_file.old_file,
@@ -411,6 +485,10 @@ class DiffCompressor:
                 is_new_file=diff_file.is_new_file,
                 is_deleted_file=diff_file.is_deleted_file,
                 is_renamed=diff_file.is_renamed,
+                rename_lines=diff_file.rename_lines,
+                original_new_file_mode_line=diff_file.original_new_file_mode_line,
+                original_deleted_file_mode_line=diff_file.original_deleted_file_mode_line,
+                original_binary_line=diff_file.original_binary_line,
             )
             compressed_files.append(new_file)
 
@@ -464,8 +542,12 @@ class DiffCompressor:
         return compressed_hunks
 
     def _extract_line_number(self, header: str) -> int:
-        """Extract starting line number from hunk header for sorting."""
-        match = self._HUNK_HEADER_PATTERN.match(header)
+        """Extract starting `+`-side line number from hunk header for sorting.
+
+        Works for both regular ``@@ -A,B +C,D @@`` and combined-diff
+        ``@@@ -A,B -C,D +E,F @@@`` formats — finds the first ``+N`` token.
+        """
+        match = self._HUNK_NEW_RANGE_PATTERN.search(header)
         if match:
             return int(match.group(1))
         return 0
@@ -513,6 +595,15 @@ class DiffCompressor:
             for i in range(pos + 1, min(len(hunk.lines), pos + max_context + 1)):
                 keep_indices.add(i)
 
+        # Bug-fix: ALWAYS keep `\ No newline at end of file` markers (and
+        # any other backslash-prefixed metadata) regardless of distance
+        # from a change. These are structural patch markers, not context —
+        # losing them breaks round-trippable patches and changes the
+        # semantic meaning of the trailing line in the file.
+        for i, line in enumerate(hunk.lines):
+            if line.startswith("\\"):
+                keep_indices.add(i)
+
         # Build new lines list
         new_lines: list[str] = []
         additions = 0
@@ -554,7 +645,17 @@ class DiffCompressor:
             # File header
             output_lines.append(diff_file.header)
 
-            # File mode indicators if present
+            # Bug-fix: emit rename / similarity / dissimilarity / copy
+            # marker lines immediately after `diff --git`, matching git's
+            # canonical output order. Previously these were captured as
+            # `is_renamed=True` and dropped — output looked like a plain
+            # modification of the old file's path.
+            if diff_file.rename_lines:
+                output_lines.extend(diff_file.rename_lines)
+
+            # File mode indicators if present. Note: parity-bound
+            # normalization to `100644` (the original mode is captured in
+            # `original_new_file_mode_line` for observability).
             if diff_file.is_new_file:
                 output_lines.append("new file mode 100644")
             elif diff_file.is_deleted_file:
@@ -586,6 +687,61 @@ class DiffCompressor:
             output_lines.append(f"[{', '.join(summary_parts)}]")
 
         return "\n".join(output_lines)
+
+    def _log_loss_signals(
+        self,
+        diff_files: list[DiffFile],
+        stats: dict[str, int],
+    ) -> None:
+        """Surface lossy-emit signals to the logger.
+
+        Some normalizations are parity-bound and silent in the compressed
+        output: file modes flatten to ``100644``, ``Binary files X and Y
+        differ`` simplifies to ``Binary files differ``, the ``max_files`` /
+        ``max_hunks_per_file`` caps drop entire files / middle hunks. Stats
+        about caps live in the result; emit-time normalizations live only
+        here. Logs let prod monitoring alert on outlier diffs without
+        changing the compressed bytes.
+        """
+        mode_normalizations: list[str] = []
+        binary_simplifications: list[str] = []
+        for f in diff_files:
+            if (
+                f.original_new_file_mode_line
+                and f.original_new_file_mode_line != "new file mode 100644"
+            ):
+                mode_normalizations.append(
+                    f"{f.old_file} -> {f.new_file}: {f.original_new_file_mode_line}"
+                )
+            if (
+                f.original_deleted_file_mode_line
+                and f.original_deleted_file_mode_line != "deleted file mode 100644"
+            ):
+                mode_normalizations.append(
+                    f"{f.old_file} -> {f.new_file}: {f.original_deleted_file_mode_line}"
+                )
+            if f.original_binary_line and f.original_binary_line != "Binary files differ":
+                binary_simplifications.append(f.original_binary_line)
+
+        if mode_normalizations:
+            logger.warning(
+                "DiffCompressor: %d file mode line(s) normalized to 100644 — "
+                "executable / symlink / submodule signals lost: %s",
+                len(mode_normalizations),
+                mode_normalizations,
+            )
+        if binary_simplifications:
+            logger.warning(
+                "DiffCompressor: %d binary file detail line(s) simplified — filenames lost: %s",
+                len(binary_simplifications),
+                binary_simplifications,
+            )
+        if stats.get("hunks_removed", 0) > 0:
+            logger.info(
+                "DiffCompressor: dropped %d hunks across %d files",
+                stats["hunks_removed"],
+                stats.get("files_affected", 0),
+            )
 
     def _store_in_ccr(self, original: str, compressed: str, original_count: int) -> str | None:
         """Store original in CCR for later retrieval.
