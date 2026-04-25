@@ -103,8 +103,8 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ steps.image-name.outputs.image_name }}
           tags: |
-            type=ref,event=branch,enable=${{ inputs.enable_ref_tags }},suffix=${{ matrix.variant != '' && format('-{0}', matrix.variant) || '' }}
-            type=ref,event=pr,enable=${{ inputs.enable_ref_tags }},suffix=${{ matrix.variant != '' && format('-{0}', matrix.variant) || '' }}
+            type=ref,event=branch,enable=${{ inputs.enable_ref_tags != 'false' && github.event_name != 'release' }},suffix=${{ matrix.variant != '' && format('-{0}', matrix.variant) || '' }}
+            type=ref,event=pr,enable=${{ inputs.enable_ref_tags != 'false' && github.event_name != 'release' }},suffix=${{ matrix.variant != '' && format('-{0}', matrix.variant) || '' }}
             type=raw,value=${{ steps.version.outputs.version }},enable=${{ steps.version.outputs.version != '' }},suffix=${{ matrix.variant != '' && format('-{0}', matrix.variant) || '' }}
             type=semver,pattern={{version}},suffix=${{ matrix.variant != '' && format('-{0}', matrix.variant) || '' }}
             type=semver,pattern={{major}}.{{minor}},suffix=${{ matrix.variant != '' && format('-{0}', matrix.variant) || '' }}
