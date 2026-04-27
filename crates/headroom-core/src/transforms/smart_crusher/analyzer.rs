@@ -776,7 +776,7 @@ fn top_n_by_count(strs: &[&str], n: usize) -> Vec<(String, usize)> {
 
     // Stable sort by count desc preserves first-occurrence tie order.
     let mut pairs: Vec<(&&str, usize)> = order.iter().map(|k| (k, counts[k])).collect();
-    pairs.sort_by(|a, b| b.1.cmp(&a.1));
+    pairs.sort_by_key(|b| std::cmp::Reverse(b.1));
 
     pairs
         .into_iter()
