@@ -36,14 +36,16 @@
 use serde_json::Value;
 
 use super::analyzer::SmartAnalyzer;
+use super::builder::SmartCrusherBuilder;
 use super::classifier::{classify_array, ArrayType};
 use super::config::SmartCrusherConfig;
 use super::crushers::{compute_k_split, crush_number_array, crush_object, crush_string_array};
 use super::planning::SmartCrusherPlanner;
+use super::traits::{Constraint, CrushEvent, Observer};
 use super::types::{CompressionPlan, CompressionStrategy, CrushResult};
-use crate::relevance::{HybridScorer, RelevanceScorer};
+use crate::relevance::RelevanceScorer;
 use crate::transforms::adaptive_sizer::compute_optimal_k;
-use crate::transforms::anchor_selector::{AnchorConfig, AnchorSelector};
+use crate::transforms::anchor_selector::AnchorSelector;
 
 /// Return type for `crush_array` — mirrors Python's
 /// `(crushed_items, strategy_info, ccr_hash, dropped_summary)` tuple.
@@ -59,39 +61,76 @@ pub struct CrushArrayResult {
 }
 
 /// Top-level SmartCrusher.
+///
+/// Three pluggable extensions (Stage 3c.2 PR1):
+/// - `scorer` — relevance scoring (`HybridScorer` by default).
+/// - `constraints` — must-keep predicates (`KeepErrorsConstraint` +
+///   `KeepStructuralOutliersConstraint` by default).
+/// - `observers` — decision-stream telemetry (`TracingObserver` by
+///   default).
+///
+/// Compose via [`SmartCrusherBuilder`]; or call `SmartCrusher::new()`
+/// for the OSS default composition.
 pub struct SmartCrusher {
     pub config: SmartCrusherConfig,
     pub anchor_selector: AnchorSelector,
     pub scorer: Box<dyn RelevanceScorer + Send + Sync>,
     pub analyzer: SmartAnalyzer,
+    pub constraints: Vec<Box<dyn Constraint>>,
+    pub observers: Vec<Box<dyn Observer>>,
 }
 
 impl SmartCrusher {
-    /// Construct with the default scorer (`HybridScorer`) and the
-    /// default `AnchorConfig`. Mirrors Python's
-    /// `SmartCrusher(config=...)` no-extra-args path with all
-    /// optional subsystems disabled.
+    /// Construct with the OSS default composition: `HybridScorer` +
+    /// `KeepErrorsConstraint` + `KeepStructuralOutliersConstraint` +
+    /// `TracingObserver`. Drop-in for callers that don't need
+    /// custom extensions — pre-PR1 behavior is preserved exactly.
     pub fn new(config: SmartCrusherConfig) -> Self {
-        let analyzer = SmartAnalyzer::new(config.clone());
-        SmartCrusher {
-            config,
-            anchor_selector: AnchorSelector::new(AnchorConfig::default()),
-            scorer: Box::new(HybridScorer::default()),
-            analyzer,
-        }
+        SmartCrusherBuilder::new(config)
+            .with_default_oss_setup()
+            .build()
     }
 
-    /// Construct with a custom scorer.
+    /// Begin a builder chain for custom composition. The Enterprise
+    /// entry point: swap the scorer, add business-rule constraints,
+    /// attach an audit observer.
+    pub fn builder(config: SmartCrusherConfig) -> SmartCrusherBuilder {
+        SmartCrusherBuilder::new(config)
+    }
+
+    /// Construct with a custom scorer (legacy convenience). Equivalent
+    /// to `SmartCrusher::builder(config).with_scorer(scorer).with_default_oss_setup().build()`
+    /// minus the default scorer override; preserved for backward
+    /// compatibility with pre-PR1 callers.
     pub fn with_scorer(
         config: SmartCrusherConfig,
         scorer: Box<dyn RelevanceScorer + Send + Sync>,
     ) -> Self {
-        let analyzer = SmartAnalyzer::new(config.clone());
+        SmartCrusherBuilder::new(config)
+            .with_scorer(scorer)
+            .add_default_oss_constraints()
+            .build()
+    }
+
+    /// Construct directly from owned parts. Used by
+    /// [`SmartCrusherBuilder::build`] — not part of the public stable
+    /// API. Prefer the builder.
+    #[doc(hidden)]
+    pub fn from_parts(
+        config: SmartCrusherConfig,
+        anchor_selector: AnchorSelector,
+        scorer: Box<dyn RelevanceScorer + Send + Sync>,
+        analyzer: SmartAnalyzer,
+        constraints: Vec<Box<dyn Constraint>>,
+        observers: Vec<Box<dyn Observer>>,
+    ) -> Self {
         SmartCrusher {
             config,
-            anchor_selector: AnchorSelector::new(AnchorConfig::default()),
+            anchor_selector,
             scorer,
             analyzer,
+            constraints,
+            observers,
         }
     }
 
@@ -101,6 +140,7 @@ impl SmartCrusher {
             &self.anchor_selector,
             &*self.scorer,
             &self.analyzer,
+            &self.constraints,
         )
     }
 
@@ -137,12 +177,33 @@ impl SmartCrusher {
     /// - `strategy`: combined strategy info from all crushed arrays
     ///   (or `"passthrough"`).
     pub fn crush(&self, content: &str, query: &str, bias: f64) -> CrushResult {
+        let start = std::time::Instant::now();
         let (compressed, was_modified, info) = self.smart_crush_content(content, query, bias);
         let strategy = if info.is_empty() {
             "passthrough".to_string()
         } else {
             info
         };
+
+        // Fire one event per top-level crush. Cheap when no observers
+        // are configured (`for o in &[]` is a single null-pointer
+        // check); cheap when only `TracingObserver` is configured if
+        // the subscriber filters `debug` out (the default in
+        // production). Custom observers — audit logs, Loop training
+        // stream, metrics — pay whatever they pay.
+        if !self.observers.is_empty() {
+            let event = CrushEvent {
+                strategy: strategy.clone(),
+                input_bytes: content.len(),
+                output_bytes: compressed.len(),
+                elapsed_ns: start.elapsed().as_nanos() as u64,
+                was_modified,
+            };
+            for observer in &self.observers {
+                observer.on_event(&event);
+            }
+        }
+
         CrushResult {
             compressed,
             original: content.to_string(),
