@@ -42,6 +42,7 @@ mod field_detect;
 mod hashing;
 mod orchestration;
 mod outliers;
+mod planning;
 mod statistics;
 mod stats_math;
 mod types;
@@ -56,6 +57,9 @@ pub use field_detect::{detect_id_field_statistically, detect_score_field_statist
 pub use hashing::hash_field_name;
 pub use orchestration::{
     deduplicate_indices_by_content, fill_remaining_slots, prioritize_indices,
+};
+pub use planning::{
+    item_has_preserve_field_match, map_to_anchor_pattern, SmartCrusherPlanner,
 };
 pub use outliers::{
     detect_error_items_for_preservation, detect_rare_status_values, detect_structural_outliers,

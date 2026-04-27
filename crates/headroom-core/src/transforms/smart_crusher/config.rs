@@ -45,6 +45,10 @@ pub struct SmartCrusherConfig {
     pub first_fraction: f64,
     /// Fraction of K to allocate to the end of the array. Default 0.15.
     pub last_fraction: f64,
+    /// Items with `RelevanceScore.score >= this` are pinned by the
+    /// planning methods. Mirrors Python's `RelevanceConfig.relevance_threshold`.
+    /// Default 0.3 — matches the Python default.
+    pub relevance_threshold: f64,
 }
 
 impl Default for SmartCrusherConfig {
@@ -66,6 +70,7 @@ impl Default for SmartCrusherConfig {
             dedup_identical_items: true,
             first_fraction: 0.3,
             last_fraction: 0.15,
+            relevance_threshold: 0.3,
         }
     }
 }
@@ -95,5 +100,6 @@ mod tests {
         assert!(c.dedup_identical_items);
         assert_eq!(c.first_fraction, 0.3);
         assert_eq!(c.last_fraction, 0.15);
+        assert_eq!(c.relevance_threshold, 0.3);
     }
 }
