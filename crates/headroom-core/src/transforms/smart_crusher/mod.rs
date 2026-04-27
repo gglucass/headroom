@@ -40,6 +40,7 @@ mod crushers;
 mod error_keywords;
 mod field_detect;
 mod hashing;
+mod orchestration;
 mod outliers;
 mod statistics;
 mod stats_math;
@@ -53,6 +54,9 @@ pub use crushers::{compute_k_split, crush_number_array, crush_object, crush_stri
 pub use error_keywords::ERROR_KEYWORDS;
 pub use field_detect::{detect_id_field_statistically, detect_score_field_statistically};
 pub use hashing::hash_field_name;
+pub use orchestration::{
+    deduplicate_indices_by_content, fill_remaining_slots, prioritize_indices,
+};
 pub use outliers::{
     detect_error_items_for_preservation, detect_rare_status_values, detect_structural_outliers,
 };
