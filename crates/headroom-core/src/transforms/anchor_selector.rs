@@ -354,6 +354,17 @@ pub fn compute_item_hash(item: &Value) -> String {
     hex[..16].to_string()
 }
 
+/// Python json.dumps formatting flags used by the writer below.
+#[derive(Clone, Copy)]
+struct JsonFmt {
+    /// `sort_keys=True` → alphabetical object key order.
+    sort_keys: bool,
+    /// Compact separators `(",", ":")`. False → Python default `(", ", ": ")`.
+    compact: bool,
+    /// `ensure_ascii=True` → non-ASCII becomes `\uXXXX`. False → emit UTF-8.
+    ensure_ascii: bool,
+}
+
 /// Python `json.dumps(value, sort_keys=True)` — exact format parity.
 ///
 /// Differences from `serde_json::to_string`:
@@ -368,7 +379,15 @@ pub fn compute_item_hash(item: &Value) -> String {
 ///    impossible so we don't handle them here.
 pub fn python_json_dumps_sort_keys(value: &Value) -> String {
     let mut out = String::new();
-    write_python_json_inner(value, &mut out, true);
+    write_python_json_inner(
+        value,
+        &mut out,
+        JsonFmt {
+            sort_keys: true,
+            compact: false,
+            ensure_ascii: true,
+        },
+    );
     out
 }
 
@@ -376,57 +395,80 @@ pub fn python_json_dumps_sort_keys(value: &Value) -> String {
 /// object-key insertion order (matches the JSON parser's order via
 /// serde_json's `preserve_order` feature).
 ///
-/// Used by `_smart_crush_content` to re-serialize crushed JSON for
-/// the proxy. Bytes differ from `to_string` because of the `, ` /
-/// `: ` separators and `\uXXXX` non-ASCII escapes — both Python
-/// defaults that affect output bytes the proxy may compare against.
+/// Bytes differ from `to_string` because of the `, ` / `: ` separators
+/// and `\uXXXX` non-ASCII escapes — both Python defaults.
 pub fn python_json_dumps(value: &Value) -> String {
     let mut out = String::new();
-    write_python_json_inner(value, &mut out, false);
+    write_python_json_inner(
+        value,
+        &mut out,
+        JsonFmt {
+            sort_keys: false,
+            compact: false,
+            ensure_ascii: true,
+        },
+    );
     out
 }
 
-fn write_python_json_inner(value: &Value, out: &mut String, sort_keys: bool) {
+/// Python `safe_json_dumps(value)` — compact separators `(",", ":")` +
+/// `ensure_ascii=False`, preserving object-key insertion order. This is
+/// the format `SmartCrusher._smart_crush_content` uses to re-serialize
+/// crushed output, so the proxy's wire bytes match Python's exactly.
+pub fn python_safe_json_dumps(value: &Value) -> String {
+    let mut out = String::new();
+    write_python_json_inner(
+        value,
+        &mut out,
+        JsonFmt {
+            sort_keys: false,
+            compact: true,
+            ensure_ascii: false,
+        },
+    );
+    out
+}
+
+fn write_python_json_inner(value: &Value, out: &mut String, fmt: JsonFmt) {
+    let item_sep = if fmt.compact { "," } else { ", " };
+    let kv_sep = if fmt.compact { ":" } else { ": " };
     match value {
         Value::Null => out.push_str("null"),
         Value::Bool(true) => out.push_str("true"),
         Value::Bool(false) => out.push_str("false"),
         Value::Number(n) => out.push_str(&n.to_string()),
-        Value::String(s) => write_python_json_string(s, out),
+        Value::String(s) => write_python_json_string(s, out, fmt.ensure_ascii),
         Value::Array(arr) => {
             out.push('[');
             for (i, v) in arr.iter().enumerate() {
                 if i > 0 {
-                    out.push_str(", ");
+                    out.push_str(item_sep);
                 }
-                write_python_json_inner(v, out, sort_keys);
+                write_python_json_inner(v, out, fmt);
             }
             out.push(']');
         }
         Value::Object(map) => {
             out.push('{');
-            if sort_keys {
-                // Python's sort_keys=True → alphabetical key order.
+            if fmt.sort_keys {
                 let mut keys: Vec<&String> = map.keys().collect();
                 keys.sort();
                 for (i, key) in keys.iter().enumerate() {
                     if i > 0 {
-                        out.push_str(", ");
+                        out.push_str(item_sep);
                     }
-                    write_python_json_string(key, out);
-                    out.push_str(": ");
-                    write_python_json_inner(&map[key.as_str()], out, sort_keys);
+                    write_python_json_string(key, out, fmt.ensure_ascii);
+                    out.push_str(kv_sep);
+                    write_python_json_inner(&map[key.as_str()], out, fmt);
                 }
             } else {
-                // Insertion order — serde_json's preserve_order feature
-                // ensures Map iteration matches the source JSON.
                 for (i, (key, val)) in map.iter().enumerate() {
                     if i > 0 {
-                        out.push_str(", ");
+                        out.push_str(item_sep);
                     }
-                    write_python_json_string(key, out);
-                    out.push_str(": ");
-                    write_python_json_inner(val, out, sort_keys);
+                    write_python_json_string(key, out, fmt.ensure_ascii);
+                    out.push_str(kv_sep);
+                    write_python_json_inner(val, out, fmt);
                 }
             }
             out.push('}');
@@ -434,13 +476,18 @@ fn write_python_json_inner(value: &Value, out: &mut String, sort_keys: bool) {
     }
 }
 
-/// Encode a string value the way Python's json.dumps does by default
-/// (`ensure_ascii=True`):
+/// Encode a string value Python-style.
+///
+/// `ensure_ascii=true`:
 /// - Backslash, quote, control chars → standard escapes (`\\`, `\"`,
 ///   `\n`, etc.).
 /// - Non-ASCII codepoints → `\uXXXX` (surrogate-paired for codepoints
 ///   above 0xFFFF).
-fn write_python_json_string(s: &str, out: &mut String) {
+///
+/// `ensure_ascii=false`:
+/// - Same standard escapes for backslash/quote/controls.
+/// - Non-ASCII codepoints emit literal UTF-8 bytes.
+fn write_python_json_string(s: &str, out: &mut String, ensure_ascii: bool) {
     out.push('"');
     for c in s.chars() {
         match c {
@@ -455,9 +502,13 @@ fn write_python_json_string(s: &str, out: &mut String) {
                 out.push_str(&format!("\\u{:04x}", c as u32));
             }
             c if (c as u32) <= 0x7E => out.push(c),
+            c if !ensure_ascii => {
+                // ensure_ascii=False: emit raw UTF-8 like Python does.
+                out.push(c);
+            }
             c => {
-                // Non-ASCII: encode as \uXXXX, with surrogate pair for
-                // codepoints above 0xFFFF.
+                // ensure_ascii=True: encode as \uXXXX, surrogate pair
+                // for codepoints above 0xFFFF.
                 let cp = c as u32;
                 if cp <= 0xFFFF {
                     out.push_str(&format!("\\u{:04x}", cp));

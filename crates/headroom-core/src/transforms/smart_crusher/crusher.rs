@@ -171,10 +171,11 @@ impl SmartCrusher {
 
         let (crushed, info) = self.process_value(&parsed, 0, query_context, bias);
 
-        // Re-serialize with Python-compatible formatting (preserves
-        // insertion order; uses `, ` / `: ` separators and ASCII
-        // escapes for non-ASCII codepoints).
-        let result = crate::transforms::anchor_selector::python_json_dumps(&crushed);
+        // Re-serialize with Python `safe_json_dumps` formatting:
+        // compact `(",", ":")` separators + `ensure_ascii=False`,
+        // preserving object-key insertion order. Matches the Python
+        // SmartCrusher output bytes the proxy writes.
+        let result = crate::transforms::anchor_selector::python_safe_json_dumps(&crushed);
         let was_modified = result != content.trim();
         (result, was_modified, info)
     }
@@ -764,9 +765,15 @@ mod tests {
     #[test]
     fn crush_small_array_passes_through() {
         let c = crusher();
-        let result = c.crush(r#"[1, 2, 3]"#, "", 1.0);
-        // Below min_items_to_analyze=5 → no crushing.
+        // Compact-form input matches the compact serializer output, so
+        // the array is not "modified" even though it round-trips
+        // through parse → serialize. (The spaced form `[1, 2, 3]`
+        // would mark `was_modified=true` because the compact
+        // serializer rewrites it to `[1,2,3]`.)
+        let result = c.crush(r#"[1,2,3]"#, "", 1.0);
+        // Below min_items_to_analyze=5 → no crushing of the structure.
         assert!(!result.was_modified);
+        assert_eq!(result.compressed, "[1,2,3]");
     }
 
     #[test]
@@ -790,15 +797,17 @@ mod tests {
     }
 
     #[test]
-    fn crush_serializes_with_python_format() {
+    fn crush_serializes_with_python_safe_format() {
         let c = crusher();
-        // 3-key object should round-trip as `{"a": 1, "b": 2, "c": 3}`
-        // (with spaces) — Python's default json.dumps format.
-        let input = r#"{"a":1,"b":2,"c":3}"#;
+        // SmartCrusher uses Python's `safe_json_dumps`: compact
+        // separators `(",", ":")` + `ensure_ascii=False`, preserving
+        // object-key insertion order. A spaced input round-trips to
+        // the compact form.
+        let input = r#"{"a": 1, "b": 2, "c": 3}"#;
         let result = c.crush(input, "", 1.0);
         assert_eq!(
-            result.compressed, r#"{"a": 1, "b": 2, "c": 3}"#,
-            "Python-format serializer adds spaces after `,` and `:`"
+            result.compressed, r#"{"a":1,"b":2,"c":3}"#,
+            "safe_json_dumps emits compact `,` / `:` separators"
         );
     }
 
