@@ -44,7 +44,7 @@ jobs:
       # below runs `maturin develop` and symlinks the built `.so` into the
       # in-tree `headroom/` package so the editable install resolves it.
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@1.95.0
 
       - name: Cache cargo registry + build
         uses: Swatinem/rust-cache@v2
@@ -130,7 +130,7 @@ jobs:
       # the editable install resolves it (same pattern as the main `test`
       # job above).
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@1.95.0
 
       - name: Cache cargo registry + build
         uses: Swatinem/rust-cache@v2

@@ -28,7 +28,7 @@ jobs:
       # Rust extension before running the smoke test or every call raises
       # `ModuleNotFoundError`. Mirrors the main CI `test` job pattern.
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@1.95.0
 
       - name: Cache cargo registry + build
         uses: Swatinem/rust-cache@v2
