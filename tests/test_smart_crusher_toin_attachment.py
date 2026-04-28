@@ -172,17 +172,36 @@ def test_non_json_input_does_not_record(fresh_toin):
 # ─── CCR marker knob ───────────────────────────────────────────────────
 
 
-def test_ccr_inject_marker_false_logs_warning(caplog):
+def test_ccr_inject_marker_false_logs_warning(monkeypatch):
     """Until the Rust port honors the marker-suppression flag, we want a
     visible warning when callers ask for it. This guards against the
-    silent regression that started this audit."""
-    from headroom.config import CCRConfig
+    silent regression that started this audit.
 
-    with caplog.at_level("WARNING", logger="headroom.transforms.smart_crusher"):
-        SmartCrusher(
-            SmartCrusherConfig(),
-            ccr_config=CCRConfig(enabled=True, inject_retrieval_marker=False),
-        )
-    assert any("inject_retrieval_marker=False" in rec.getMessage() for rec in caplog.records), (
+    Why monkeypatch instead of `caplog`: `caplog` flakes under the full
+    suite — earlier tests can leave `logging.disable()` or root-handler
+    state that suppresses the named logger's records before the
+    test's filter sees them. Patching `logger.warning` on the module
+    bypasses every level/disable/handler concern; we only assert that
+    the constructor *called* `logger.warning` with the flag name in
+    the message.
+    """
+    from headroom.config import CCRConfig
+    from headroom.transforms import smart_crusher as sc_module
+
+    captured: list[str] = []
+    real_warning = sc_module.logger.warning
+
+    def _capture(msg: str, *args: object, **kwargs: object) -> None:
+        captured.append(msg % args if args else msg)
+        real_warning(msg, *args, **kwargs)
+
+    monkeypatch.setattr(sc_module.logger, "warning", _capture)
+
+    SmartCrusher(
+        SmartCrusherConfig(),
+        ccr_config=CCRConfig(enabled=True, inject_retrieval_marker=False),
+    )
+
+    assert any("inject_retrieval_marker=False" in m for m in captured), (
         "expected a WARNING about the unsupported marker-suppression flag"
     )
