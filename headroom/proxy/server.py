@@ -30,6 +30,7 @@ import logging
 import os
 import sys
 import time
+from dataclasses import fields, is_dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast
@@ -184,6 +185,8 @@ logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger("headroom.proxy")
+
+_MULTI_WORKER_CONFIG_ENV = "HEADROOM_PROXY_CONFIG_JSON"
 
 # Always-on file logging to ~/.headroom/logs/ for `headroom perf` analysis
 _setup_file_logging()
@@ -2259,6 +2262,58 @@ def create_app(config: ProxyConfig | None = None) -> FastAPI:
     return app
 
 
+def _json_ready(value: Any) -> Any:
+    if is_dataclass(value) and not isinstance(value, type):
+        return {field.name: _json_ready(getattr(value, field.name)) for field in fields(value)}
+    if isinstance(value, dict):
+        return {str(key): _json_ready(item) for key, item in value.items()}
+    if isinstance(value, list | tuple | set):
+        return [_json_ready(item) for item in value]
+    return value
+
+
+def _proxy_config_payload(config: ProxyConfig) -> dict[str, Any]:
+    payload: dict[str, Any] = {}
+    for field in fields(config):
+        value = _json_ready(getattr(config, field.name))
+        try:
+            json.dumps(value)
+        except TypeError:
+            continue
+        payload[field.name] = value
+    return payload
+
+
+def _proxy_config_from_env() -> ProxyConfig:
+    raw_config = os.environ.get(_MULTI_WORKER_CONFIG_ENV)
+    if raw_config:
+        try:
+            return ProxyConfig(**json.loads(raw_config))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            logger.warning(
+                "Invalid %s; falling back to HEADROOM_* env vars", _MULTI_WORKER_CONFIG_ENV
+            )
+
+    return ProxyConfig(
+        host=_get_env_str("HEADROOM_HOST", "127.0.0.1"),
+        port=_get_env_int("HEADROOM_PORT", 8787),
+        openai_api_url=os.environ.get("OPENAI_TARGET_API_URL"),
+        anthropic_api_url=os.environ.get("ANTHROPIC_TARGET_API_URL"),
+        backend=_get_env_str("HEADROOM_BACKEND", "anthropic"),
+        bedrock_region=_get_env_str("HEADROOM_BEDROCK_REGION", "us-west-2"),
+        bedrock_profile=os.environ.get("AWS_PROFILE"),
+        anyllm_provider=_get_env_str("HEADROOM_ANYLLM_PROVIDER", "openai"),
+        max_connections=_get_env_int("HEADROOM_MAX_CONNECTIONS", 500),
+        max_keepalive_connections=_get_env_int("HEADROOM_MAX_KEEPALIVE", 100),
+        http2=_get_env_bool("HEADROOM_HTTP2", True),
+        mode=normalize_proxy_mode(_get_env_str("HEADROOM_MODE", PROXY_MODE_TOKEN)),
+    )
+
+
+def create_app_from_env() -> FastAPI:
+    return create_app(_proxy_config_from_env())
+
+
 def _get_code_aware_banner_status(config: ProxyConfig) -> str:
     """Get code-aware compression status line for banner."""
     if config.code_aware_enabled:
@@ -2289,8 +2344,6 @@ def run_server(
         sys.exit(1)
 
     config = config or ProxyConfig()
-    app = create_app(config)
-
     code_aware_status = _get_code_aware_banner_status(config)
 
     # Format connection pool info
@@ -2347,8 +2400,17 @@ def run_server(
 ╚══════════════════════════════════════════════════════════════════════╝
 """)
 
+    app_target: Any
+    uvicorn_kwargs: dict[str, Any] = {}
+    if workers > 1:
+        os.environ[_MULTI_WORKER_CONFIG_ENV] = json.dumps(_proxy_config_payload(config))
+        app_target = "headroom.proxy.server:create_app_from_env"
+        uvicorn_kwargs["factory"] = True
+    else:
+        app_target = create_app(config)
+
     uvicorn.run(
-        app,
+        app_target,
         host=config.host,
         port=config.port,
         log_level="warning",
@@ -2360,6 +2422,7 @@ def run_server(
         # default. Disabling proxy_headers here guarantees the guard sees the
         # real peer address regardless of env.
         proxy_headers=False,
+        **uvicorn_kwargs,
     )
 
 
