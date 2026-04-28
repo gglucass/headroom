@@ -18,6 +18,7 @@ import pytest
 from headroom.config import SmartCrusherConfig
 from headroom.providers import OpenAIProvider
 from headroom.transforms import SmartCrusher
+from headroom.transforms.smart_crusher import strip_ccr_sentinels
 
 
 # Test fixtures for realistic data
@@ -190,8 +191,12 @@ class TestErrorPreservation:
         json_match = re.search(r"(\{.*\})", compressed_output, re.DOTALL)
         compressed_data = json.loads(json_match.group(1) if json_match else compressed_output)
 
-        # Count preserved errors
-        compressed_errors = [e for e in compressed_data["entries"] if e["level"] == "ERROR"]
+        # Count preserved errors. Strip CCR-dropped sentinel objects
+        # before iterating — they carry the retrieval marker for the LLM
+        # but don't share the entry schema.
+        compressed_errors = [
+            e for e in strip_ccr_sentinels(compressed_data["entries"]) if e["level"] == "ERROR"
+        ]
 
         # CRITICAL: 100% of errors must be preserved
         assert len(compressed_errors) == len(original_errors), (
@@ -226,7 +231,9 @@ class TestErrorPreservation:
         json_match = re.search(r"(\{.*\})", compressed_output, re.DOTALL)
         compressed_data = json.loads(json_match.group(1) if json_match else compressed_output)
 
-        compressed_errors = [e for e in compressed_data["entries"] if e["level"] == "ERROR"]
+        compressed_errors = [
+            e for e in strip_ccr_sentinels(compressed_data["entries"]) if e["level"] == "ERROR"
+        ]
 
         # Even with many errors, ALL must be preserved
         assert len(compressed_errors) == len(original_errors), (
@@ -314,7 +321,7 @@ class TestRelevancePreservation:
         # At least some high-relevance results should be preserved
         # (BM25 may not catch all without exact keyword matches)
         compressed_high_relevance = [
-            r for r in compressed_data["results"] if r["relevance_score"] > 0.8
+            r for r in strip_ccr_sentinels(compressed_data["results"]) if r["relevance_score"] > 0.8
         ]
 
         # With BM25, we should preserve at least 1 high-relevance result
