@@ -108,6 +108,7 @@ class SmartCrusher(Transform):
         relevance_config: Any = None,
         scorer: Any = None,
         ccr_config: CCRConfig | None = None,
+        with_compaction: bool = True,
     ):
         # Hard import — no Python fallback. If the wheel is missing the
         # caller must build it (scripts/build_rust_extension.sh) or
@@ -122,6 +123,7 @@ class SmartCrusher(Transform):
 
         cfg = config or SmartCrusherConfig()
         self.config = cfg
+        self._with_compaction = with_compaction
 
         # CCR config is preserved on `self` for callers that read it
         # back (`headroom.proxy.server` does), but the Rust port doesn't
@@ -149,26 +151,34 @@ class SmartCrusher(Transform):
         # config, plus the relevance_threshold default (0.3) — the
         # Python dataclass doesn't carry that field; it lives on
         # `RelevanceScorerConfig` instead.
-        self._rust = _RustSmartCrusher(
-            _RustSmartCrusherConfig(
-                enabled=cfg.enabled,
-                min_items_to_analyze=cfg.min_items_to_analyze,
-                min_tokens_to_crush=cfg.min_tokens_to_crush,
-                variance_threshold=cfg.variance_threshold,
-                uniqueness_threshold=cfg.uniqueness_threshold,
-                similarity_threshold=cfg.similarity_threshold,
-                max_items_after_crush=cfg.max_items_after_crush,
-                preserve_change_points=cfg.preserve_change_points,
-                factor_out_constants=cfg.factor_out_constants,
-                include_summaries=cfg.include_summaries,
-                use_feedback_hints=cfg.use_feedback_hints,
-                toin_confidence_threshold=cfg.toin_confidence_threshold,
-                dedup_identical_items=cfg.dedup_identical_items,
-                first_fraction=cfg.first_fraction,
-                last_fraction=cfg.last_fraction,
-                relevance_threshold=0.3,
-            )
+        rust_cfg = _RustSmartCrusherConfig(
+            enabled=cfg.enabled,
+            min_items_to_analyze=cfg.min_items_to_analyze,
+            min_tokens_to_crush=cfg.min_tokens_to_crush,
+            variance_threshold=cfg.variance_threshold,
+            uniqueness_threshold=cfg.uniqueness_threshold,
+            similarity_threshold=cfg.similarity_threshold,
+            max_items_after_crush=cfg.max_items_after_crush,
+            preserve_change_points=cfg.preserve_change_points,
+            factor_out_constants=cfg.factor_out_constants,
+            include_summaries=cfg.include_summaries,
+            use_feedback_hints=cfg.use_feedback_hints,
+            toin_confidence_threshold=cfg.toin_confidence_threshold,
+            dedup_identical_items=cfg.dedup_identical_items,
+            first_fraction=cfg.first_fraction,
+            last_fraction=cfg.last_fraction,
+            relevance_threshold=0.3,
         )
+        # Default: lossless-first compaction (PR4). Lossless wins for
+        # cleanly tabular input where it saves ≥ 30% bytes; otherwise
+        # falls through to the lossy path with CCR-Dropped retrieval
+        # markers. Pass `with_compaction=False` to opt into the
+        # pre-PR4 lossy-only path (used by retention-property tests
+        # that depend on row-level item preservation).
+        if with_compaction:
+            self._rust = _RustSmartCrusher(rust_cfg)
+        else:
+            self._rust = _RustSmartCrusher.without_compaction(rust_cfg)
 
     def crush(self, content: str, query: str = "", bias: float = 1.0) -> CrushResult:
         """Crush a single JSON content string.
@@ -330,13 +340,14 @@ def smart_crush_tool_output(
     content: str,
     config: SmartCrusherConfig | None = None,
     ccr_config: CCRConfig | None = None,
+    with_compaction: bool = True,
 ) -> tuple[str, bool, str]:
     """Compress a single tool output. Returns `(crushed, was_modified, info)`.
 
     Convenience wrapper that builds a one-shot `SmartCrusher` per call.
-    `ccr_config` is accepted for source compatibility but currently
-    not wired through (Stage 3c.1 keeps CCR marker injection
-    disabled — Rust port has no compression store).
+    Defaults to the PR4 lossless-first behavior; pass
+    `with_compaction=False` to exercise the legacy lossy-only path
+    (still useful for retention-property tests).
     """
-    crusher = SmartCrusher(config=config, ccr_config=ccr_config)
+    crusher = SmartCrusher(config=config, ccr_config=ccr_config, with_compaction=with_compaction)
     return crusher._smart_crush_content(content)

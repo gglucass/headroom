@@ -403,6 +403,7 @@ impl PySmartCrusherConfig {
         first_fraction = 0.3,
         last_fraction = 0.15,
         relevance_threshold = 0.3,
+        lossless_min_savings_ratio = 0.30,
     ))]
     #[allow(clippy::too_many_arguments)]
     fn new(
@@ -422,6 +423,7 @@ impl PySmartCrusherConfig {
         first_fraction: f64,
         last_fraction: f64,
         relevance_threshold: f64,
+        lossless_min_savings_ratio: f64,
     ) -> Self {
         Self {
             inner: RustSmartCrusherConfig {
@@ -441,6 +443,7 @@ impl PySmartCrusherConfig {
                 first_fraction,
                 last_fraction,
                 relevance_threshold,
+                lossless_min_savings_ratio,
             },
         }
     }
@@ -584,6 +587,20 @@ impl PySmartCrusher {
         let cfg = config.map(|c| c.inner.clone()).unwrap_or_default();
         Self {
             inner: RustSmartCrusher::new(cfg),
+        }
+    }
+
+    /// Construct WITHOUT the lossless-first compaction stage. The
+    /// public `crush()` API runs the lossy path directly (still with
+    /// CCR-Dropped retrieval markers populated when rows are dropped).
+    /// Used by the legacy parity fixture harness — those fixtures
+    /// were recorded against the pre-PR4 lossy-only behavior.
+    #[staticmethod]
+    #[pyo3(signature = (config = None))]
+    fn without_compaction(config: Option<&PySmartCrusherConfig>) -> Self {
+        let cfg = config.map(|c| c.inner.clone()).unwrap_or_default();
+        Self {
+            inner: RustSmartCrusher::without_compaction(cfg),
         }
     }
 

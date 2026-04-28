@@ -377,9 +377,19 @@ impl TransformComparator for SmartCrusherComparator {
                 .get("relevance_threshold")
                 .and_then(|v| v.as_f64())
                 .unwrap_or(defaults.relevance_threshold),
+            // Rust-only PR4 knob — fixtures don't carry this; use
+            // default. The parity harness exercises the legacy
+            // lossy-only path via `without_compaction`, so this
+            // threshold is moot.
+            lossless_min_savings_ratio: config
+                .get("lossless_min_savings_ratio")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(defaults.lossless_min_savings_ratio),
         };
 
-        let crusher = SmartCrusher::new(cfg);
+        // Use without_compaction so the legacy fixtures (recorded
+        // against the pre-PR4 lossy-only path) keep matching byte-equal.
+        let crusher = SmartCrusher::without_compaction(cfg);
         let result = crusher.crush(content, query, bias);
 
         Ok(serde_json::json!({

@@ -30,13 +30,21 @@ def tokenizer():
 
 @pytest.fixture
 def smart_crusher():
-    """Create SmartCrusher with default config."""
+    """Create SmartCrusher with default config.
+
+    These eval tests assert row-level retention semantics (errors
+    preserved, anomalies preserved, schema unchanged in JSON shape).
+    Those properties belong to the lossy + CCR-Dropped path, not
+    the lossless path which substitutes a CSV+schema string.
+    `with_compaction=False` keeps these tests on the legacy lossy
+    path — same as the retention tests in `test_quality_retention.py`.
+    """
     config = SmartCrusherConfig(
         enabled=True,
         min_tokens_to_crush=200,
         max_items_after_crush=20,
     )
-    return SmartCrusher(config=config)
+    return SmartCrusher(config=config, with_compaction=False)
 
 
 def generate_log_entries(count: int, error_rate: float = 0.15) -> list[dict]:

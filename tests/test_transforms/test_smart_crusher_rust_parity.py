@@ -68,7 +68,11 @@ def test_rust_backend_matches_recorded_output(fixture_path: Path):
     expected = fixture["output"]
 
     cfg = SmartCrusherConfig(**cfg_dict)
-    crusher = SmartCrusher(cfg)
+    # Legacy fixtures were recorded against the pre-PR4 lossy-only
+    # path. Use `without_compaction()` to preserve byte-equal coverage
+    # of that path; the new lossless default has its own coverage in
+    # `test_smart_crusher_lossless_default.py`.
+    crusher = SmartCrusher.without_compaction(cfg)
     actual = crusher.crush(inp["content"], inp["query"], inp["bias"])
 
     assert actual.compressed == expected["compressed"], (

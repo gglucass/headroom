@@ -49,11 +49,26 @@ pub struct SmartCrusherConfig {
     /// planning methods. Mirrors Python's `RelevanceConfig.relevance_threshold`.
     /// Default 0.3 — matches the Python default.
     pub relevance_threshold: f64,
+    /// Minimum byte-savings ratio (0.0..1.0) for the lossless compaction
+    /// path to be chosen over lossy. Computed as
+    /// `1 - len(rendered) / len(input)`. If lossless saves less than
+    /// this fraction, `crush_array` falls through to the lossy path
+    /// (with CCR-Dropped retrieval markers). Default `0.30`.
+    ///
+    /// **Override semantics.** OSS users can tune this via the config
+    /// directly. Enterprise plug-ins replace the entire decision via
+    /// a custom builder; the threshold is the OSS-default policy
+    /// expressed as a single knob. Set to `0.0` to always prefer
+    /// lossless when available; set to `1.0` to effectively disable
+    /// the lossless path (lossy + CCR always).
+    pub lossless_min_savings_ratio: f64,
 }
 
 impl Default for SmartCrusherConfig {
     fn default() -> Self {
         // These defaults must match smart_crusher.py:934-957 byte-for-byte.
+        // The PR4 additions (`lossless_min_savings_ratio`) have no
+        // Python counterpart — they govern Rust-side dispatch only.
         SmartCrusherConfig {
             enabled: true,
             min_items_to_analyze: 5,
@@ -71,6 +86,7 @@ impl Default for SmartCrusherConfig {
             first_fraction: 0.3,
             last_fraction: 0.15,
             relevance_threshold: 0.3,
+            lossless_min_savings_ratio: 0.30,
         }
     }
 }
@@ -101,5 +117,6 @@ mod tests {
         assert_eq!(c.first_fraction, 0.3);
         assert_eq!(c.last_fraction, 0.15);
         assert_eq!(c.relevance_threshold, 0.3);
+        assert_eq!(c.lossless_min_savings_ratio, 0.30);
     }
 }
