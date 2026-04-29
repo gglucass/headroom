@@ -21,6 +21,7 @@ pub mod content_detector;
 pub mod diff_compressor;
 pub mod magika_detector;
 pub mod smart_crusher;
+pub mod unidiff_detector;
 
 pub use content_detector::{
     detect_content_type, is_json_array_of_dicts, ContentType, DetectionResult,
@@ -29,3 +30,4 @@ pub use diff_compressor::{
     DiffCompressionResult, DiffCompressor, DiffCompressorConfig, DiffCompressorStats,
 };
 pub use magika_detector::{magika_detect, map_magika_label, MagikaDetectorError};
+pub use unidiff_detector::{detect_diff, is_diff};

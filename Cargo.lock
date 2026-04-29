@@ -1337,6 +1337,7 @@ dependencies = [
  "tiktoken-rs",
  "tokenizers 0.21.4",
  "tracing",
+ "unidiff",
 ]
 
 [[package]]
@@ -3942,6 +3943,16 @@ name = "unicode_categories"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39ec24b3121d976906ece63c9daad25b85969647682eee313cb5779fdd69e14e"
+
+[[package]]
+name = "unidiff"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e3ae26d2e6582eb32eff85cffebf74d20b6510e8b558bbac3a23b48965cf952f"
+dependencies = [
+ "encoding_rs",
+ "regex",
+]
 
 [[package]]
 name = "unindent"

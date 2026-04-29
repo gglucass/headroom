@@ -61,6 +61,14 @@ fastembed = "5"
 # `fastembed`, so adding it doesn't pull a new ML runtime — both
 # crates share the ONNX Runtime singleton.
 magika = "1"
+# `unidiff` is the Stage-3d Tier-2 diff detector. We use the parser
+# itself as the "is this a diff?" oracle — anything that successfully
+# parses to ≥1 PatchedFile is a diff. The deterministic parser
+# catches diffs Magika may miss (naked hunks without `diff --git`
+# headers, prose-prefixed diffs, truncated outputs). Default features
+# bring `encoding_rs` for non-UTF8 sniffing — we keep them on for
+# compatibility with arbitrary tool outputs.
+unidiff = "0.4"
 
 [dev-dependencies]
 proptest = "1"
