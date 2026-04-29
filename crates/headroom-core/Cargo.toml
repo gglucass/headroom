@@ -54,6 +54,13 @@ flate2 = "1"
 # Same library + same model = byte-equal embeddings between Python and Rust
 # (both call into ONNX Runtime over the identical ONNX file).
 fastembed = "5"
+# `magika` is Google's ONNX-backed content classifier (Tier 1 of the
+# Stage-3d ContentRouter detection arch). Bundled standard-model is
+# loaded once per process via `OnceLock` and shared across calls. The
+# crate depends on `ort`, which is already in our dep tree via
+# `fastembed`, so adding it doesn't pull a new ML runtime — both
+# crates share the ONNX Runtime singleton.
+magika = "1"
 
 [dev-dependencies]
 proptest = "1"

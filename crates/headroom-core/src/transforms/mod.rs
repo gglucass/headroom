@@ -19,6 +19,7 @@ pub mod adaptive_sizer;
 pub mod anchor_selector;
 pub mod content_detector;
 pub mod diff_compressor;
+pub mod magika_detector;
 pub mod smart_crusher;
 
 pub use content_detector::{
@@ -27,3 +28,4 @@ pub use content_detector::{
 pub use diff_compressor::{
     DiffCompressionResult, DiffCompressor, DiffCompressorConfig, DiffCompressorStats,
 };
+pub use magika_detector::{magika_detect, map_magika_label, MagikaDetectorError};
