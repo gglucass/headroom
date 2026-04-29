@@ -1618,6 +1618,8 @@ def create_app(config: ProxyConfig | None = None) -> FastAPI:
             }
             if m.transform_timing_sum
             else {},
+            "compressions_by_strategy": dict(m.compressions_by_strategy),
+            "tokens_saved_by_strategy": dict(m.tokens_saved_by_strategy),
             "waste_signals": dict(m.waste_signals_total) if m.waste_signals_total else {},
             "savings_history": m.savings_history[-100:],  # Last 100 data points
             "display_session": display_session,
