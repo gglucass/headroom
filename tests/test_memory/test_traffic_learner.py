@@ -14,10 +14,13 @@ from headroom.memory.traffic_learner import (
     ExtractedPattern,
     PatternCategory,
     TrafficLearner,
+    _bash_binaries_match,
+    _bash_first_binary,
     _classify_error,
     _commands_related_as_retry,
     _drop_contradictions,
     _is_error,
+    _levenshtein,
     _load_persisted_patterns_from_sqlite,
     _normalize_bash_for_hash,
     _parse_iso_timestamp,
@@ -76,9 +79,7 @@ class TestPathsRelatedAsTypo:
     def test_unrelated_files_in_same_dir_rejected(self):
         # The motivating bug: state.rs and lib.rs are unrelated files,
         # not typos, and should never be paired into a recovery rule.
-        assert not _paths_related_as_typo(
-            "/src-tauri/src/state.rs", "/src-tauri/src/lib.rs"
-        )
+        assert not _paths_related_as_typo("/src-tauri/src/state.rs", "/src-tauri/src/lib.rs")
         assert not _paths_related_as_typo("/x/models.py", "/x/views.py")
 
     def test_empty_or_equal_paths_rejected(self):
@@ -95,9 +96,7 @@ class TestCommandsRelatedAsRetry:
         assert _commands_related_as_retry("ruff check .", ".venv/bin/ruff check .")
 
     def test_extra_flag_is_retry(self):
-        assert _commands_related_as_retry(
-            "cargo build", "cargo build --release"
-        )
+        assert _commands_related_as_retry("cargo build", "cargo build --release")
 
     def test_different_binaries_rejected(self):
         assert not _commands_related_as_retry("grep -n foo bar.rs", "find . -name foo")
@@ -155,6 +154,87 @@ class TestDropContradictions:
         )
         cleaned = _drop_contradictions([env_pattern])
         assert cleaned == [env_pattern]
+
+    def test_skips_error_recovery_with_non_canonical_content(self):
+        """Bash recoveries don't match the Read regex; skip without crashing."""
+        bash_pattern = ExtractedPattern(
+            category=PatternCategory.ERROR_RECOVERY,
+            content="Command `foo` fails (exit_code). Use `bar` instead.",
+            importance=0.7,
+            evidence_count=5,
+        )
+        cleaned = _drop_contradictions([bash_pattern])
+        assert cleaned == [bash_pattern]
+
+
+# =============================================================================
+# Helper edge cases (branch coverage)
+# =============================================================================
+
+
+class TestLevenshtein:
+    def test_equal_returns_zero(self):
+        assert _levenshtein("abc", "abc") == 0
+
+    def test_empty_a_returns_len_b(self):
+        assert _levenshtein("", "abc") == 3
+
+    def test_empty_b_returns_len_a(self):
+        assert _levenshtein("abc", "") == 3
+
+    def test_swap_when_a_longer(self):
+        # Triggers the `len(a) > len(b)` swap branch.
+        assert _levenshtein("abcdef", "abc") == 3
+
+    def test_simple_substitution(self):
+        assert _levenshtein("kitten", "sitting") == 3
+
+
+class TestBashFirstBinary:
+    def test_empty_returns_none(self):
+        assert _bash_first_binary("") is None
+        assert _bash_first_binary("   ") is None
+
+    def test_strips_source_venv_prefix(self):
+        assert _bash_first_binary("source .venv/bin/activate && pytest -x") == "pytest"
+
+    def test_skips_env_var_assignments(self):
+        assert _bash_first_binary("FOO=bar BAZ=qux python script.py") == "python"
+
+    def test_returns_first_token_otherwise(self):
+        assert _bash_first_binary("cargo test --release") == "cargo"
+
+
+class TestBashBinariesMatch:
+    def test_equal_strings_match(self):
+        # Direct equality short-circuit; not exercised by the typical retry flow.
+        assert _bash_binaries_match("cargo", "cargo")
+
+    def test_basename_match_across_paths(self):
+        assert _bash_binaries_match("ruff", ".venv/bin/ruff")
+        assert _bash_binaries_match("/usr/bin/python3", "python3")
+
+    def test_prefix_version_match(self):
+        assert _bash_binaries_match("python", "python3")
+
+    def test_unrelated_binaries_do_not_match(self):
+        assert not _bash_binaries_match("grep", "find")
+
+
+class TestPathsRelatedAsTypoEdgeCases:
+    def test_root_paths_rejected(self):
+        # After basename strip both sides become empty.
+        assert not _paths_related_as_typo("/", "/")
+
+
+class TestCommandsRelatedAsRetrySubstantiveToken:
+    def test_substantive_token_beats_distance(self):
+        # Edit distance is too high to pass the 40% gate, but both commands
+        # share the substantive token "headroom-config", so the token-overlap
+        # path accepts the pair.
+        failed = "python -m foo --headroom-config=/etc/h.toml"
+        success = "python -m bar --headroom-config=/etc/h.toml --extra"
+        assert _commands_related_as_retry(failed, success)
 
 
 # =============================================================================
