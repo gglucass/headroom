@@ -332,7 +332,7 @@ mod tests {
     use super::*;
     use crate::ccr::InMemoryCcrStore;
     use crate::transforms::pipeline::offloads::{
-        DiffNoise, DiffOffload, LogOffload, SearchOffload,
+        DiffNoise, DiffOffload, JsonOffload, LogOffload, SearchOffload,
     };
     use crate::transforms::pipeline::reformats::{JsonMinifier, LogTemplate};
     use crate::transforms::pipeline::traits::{OffloadOutput, ReformatOutput};
@@ -766,6 +766,59 @@ mod tests {
         assert!(r.output.contains("[diff_noise: lockfile hunks dropped"));
         assert!(r.output.contains("let x = 2;"), "real change must survive");
         assert!(!r.cache_keys.is_empty());
+    }
+
+    #[test]
+    fn end_to_end_json_minifier_then_json_offload_on_tabular_array() {
+        // JsonMinifier (lossless reformat) runs first to strip
+        // pretty-printing. If the array is large enough JsonOffload
+        // (SmartCrusher wrapper) then engages.
+        let cfg = PipelineConfig::default();
+        let p = CompressionPipeline::builder()
+            .with_reformat(JsonMinifier)
+            .with_offload(JsonOffload::new(cfg.offload.json))
+            .with_config(cfg)
+            .build();
+        let s = store();
+        // Pretty-printed 200-row tabular array.
+        let mut input = String::from("[\n");
+        for i in 0..200 {
+            if i > 0 {
+                input.push_str(",\n");
+            }
+            input.push_str(&format!(
+                "  {{\"id\": {i}, \"name\": \"event-{i}\", \"value\": {}}}",
+                i * 100
+            ));
+        }
+        input.push_str("\n]");
+        let r = p.run(&input, ContentType::JsonArray, &ctx(), &s);
+        assert!(r.bytes_saved > 0);
+        assert!(
+            r.steps_applied.iter().any(|n| n == "json_offload"),
+            "json_offload must engage on 200-row tabular array, got {:?}",
+            r.steps_applied
+        );
+        assert!(!r.cache_keys.is_empty());
+        // Original recoverable through the orchestrator's store.
+        let key = r.cache_keys.last().unwrap();
+        assert!(s.get(key).is_some(), "wrapper hash must resolve in store");
+    }
+
+    #[test]
+    fn end_to_end_json_offload_skipped_for_small_array() {
+        let cfg = PipelineConfig::default();
+        let p = CompressionPipeline::builder()
+            .with_offload(JsonOffload::new(cfg.offload.json))
+            .with_config(cfg)
+            .build();
+        let s = store();
+        // 3 rows — below default min_array_rows=5. Estimator returns 0
+        // → orchestrator skips without calling SmartCrusher.
+        let input = r#"[{"id":1,"v":1},{"id":2,"v":2},{"id":3,"v":3}]"#;
+        let r = p.run(input, ContentType::JsonArray, &ctx(), &s);
+        assert!(r.steps_applied.is_empty());
+        assert_eq!(s.len(), 0);
     }
 
     #[test]

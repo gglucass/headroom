@@ -103,6 +103,22 @@ similarity_threshold = 0.4
 # verbatim instead. 2 = "must share at least 2 anchor tokens."
 min_constant_tokens = 2
 
+# ─── JSON-array offload config (SmartCrusher wrapper) ─────────────
+#
+# JsonOffload wraps SmartCrusher: a JSON array of dicts (rows) with
+# repeated schema is highly bloaty — most fields repeat their keys per
+# row. SmartCrusher dedups, drops near-duplicate rows, and emits a CCR
+# marker for retrieval. The bloat estimator below cheaply spots the
+# "array-of-dicts shape with N+ rows" signal without parsing JSON.
+
+[offload.json]
+# Don't fire below this many detected row separators (`},{` boundaries
+# scaled across the input). 5 = "less than 5 rows isn't worth it."
+min_array_rows = 5
+# At this row count, the bloat score saturates to 1.0. Tabular inputs
+# with this many rows are reliably bloat-heavy candidates for CCR.
+saturation_rows = 50
+
 # ─── Diff-noise offload config ─────────────────────────────────────
 #
 # Drop hunks for files that match these glob-like suffixes (literal

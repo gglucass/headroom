@@ -19,11 +19,13 @@
 
 pub mod diff_noise;
 pub mod diff_offload;
+pub mod json_offload;
 pub mod log_offload;
 pub mod search_offload;
 
 pub use diff_noise::DiffNoise;
 pub use diff_offload::DiffOffload;
+pub use json_offload::JsonOffload;
 pub use log_offload::LogOffload;
 // `SearchOffload` is intentionally NOT re-exported here. The
 // orchestrator-default registration omits it; keep the type accessible

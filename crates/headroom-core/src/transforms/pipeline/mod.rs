@@ -56,6 +56,11 @@
 //!   variant table, every original line reconstructible.
 //!
 //! Offloads:
+//! - [`offloads::JsonOffload`] — wraps `SmartCrusher` for JSON arrays
+//!   of dicts. Estimator counts row separators; apply delegates the
+//!   heavy work to SmartCrusher (schema dedup, row sampling,
+//!   anchor-aware selection) and adds a wrapper-level CCR marker
+//!   that resolves in the orchestrator's store.
 //! - [`offloads::LogOffload`] — wraps the existing `LogCompressor`,
 //!   gates on per-line bloat heuristic.
 //! - [`offloads::DiffOffload`] — wraps the existing `DiffCompressor`,
@@ -69,11 +74,7 @@
 //!   `rg`/`grep`, the marginal value didn't justify default registration.
 //!
 //! Deferred to later PRs:
-//! - **JSON Offload** — already lives at
-//!   `crate::transforms::smart_crusher::SmartCrusher`. Phase 3g PR3
-//!   refactors it to implement the [`OffloadTransform`] contract so
-//!   the orchestrator dispatches JSON arrays through it.
-//! - **ProseFieldCompressor** — Phase 3g PR4. Compresses prose-shaped
+//! - **ProseFieldCompressor** — Phase 3g PR3. Compresses prose-shaped
 //!   string fields inside structured payloads.
 //!
 //! [`estimate_bloat`]: traits::OffloadTransform::estimate_bloat
@@ -85,14 +86,15 @@ pub mod reformats;
 pub mod traits;
 
 pub use config::{
-    BloatConfigs, ConfigError, DiffBloatConfig, DiffNoiseConfig, LogBloatConfig, LogTemplateConfig,
-    OffloadConfigs, OrchestratorConfig, PipelineConfig, ReformatConfigs, SearchBloatConfig,
+    BloatConfigs, ConfigError, DiffBloatConfig, DiffNoiseConfig, JsonOffloadConfig, LogBloatConfig,
+    LogTemplateConfig, OffloadConfigs, OrchestratorConfig, PipelineConfig, ReformatConfigs,
+    SearchBloatConfig,
 };
 // `SearchOffload` is intentionally NOT in the top-level re-export
 // (deprecated from default pipeline; reach via the explicit module
 // path if you want to opt in). See `offloads::search_offload` head
 // docs for rationale.
-pub use offloads::{DiffNoise, DiffOffload, LogOffload};
+pub use offloads::{DiffNoise, DiffOffload, JsonOffload, LogOffload};
 pub use orchestrator::{CompressionPipeline, CompressionPipelineBuilder, PipelineResult};
 pub use reformats::{JsonMinifier, LogTemplate};
 pub use traits::{

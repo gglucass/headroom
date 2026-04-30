@@ -182,7 +182,18 @@ pub struct LogTemplateConfig {
 /// Offload-transform configs (one struct per offload that needs them).
 #[derive(Debug, Clone, Deserialize)]
 pub struct OffloadConfigs {
+    pub json: JsonOffloadConfig,
     pub diff_noise: DiffNoiseConfig,
+}
+
+/// Knobs for the [`crate::transforms::pipeline::offloads::JsonOffload`]
+/// (SmartCrusher wrapper). The estimator scans byte-prefix-cheaply for
+/// JSON array-of-objects shape; SmartCrusher itself does the heavy work
+/// when the orchestrator decides to fire.
+#[derive(Debug, Clone, Copy, Deserialize)]
+pub struct JsonOffloadConfig {
+    pub min_array_rows: usize,
+    pub saturation_rows: usize,
 }
 
 /// Knobs for the [`crate::transforms::pipeline::offloads::DiffNoise`]
@@ -264,6 +275,10 @@ mod tests {
             similarity_threshold = 0.8
             min_constant_tokens = 3
 
+            [offload.json]
+            min_array_rows = 3
+            saturation_rows = 25
+
             [offload.diff_noise]
             min_lines = 20
             lockfile_suffixes = ["custom.lock"]
@@ -285,6 +300,8 @@ mod tests {
         let cfg = PipelineConfig::default();
         assert_eq!(cfg.reformat.log_template.min_lines, 20);
         assert_eq!(cfg.reformat.log_template.min_run, 3);
+        assert_eq!(cfg.offload.json.min_array_rows, 5);
+        assert_eq!(cfg.offload.json.saturation_rows, 50);
         assert!(!cfg.offload.diff_noise.lockfile_suffixes.is_empty());
         assert!(cfg
             .offload
