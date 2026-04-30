@@ -1,66 +1,101 @@
-//! Compression pipeline — formal orchestrator for lossless → lossy → CCR.
+//! Compression pipeline — formal orchestrator for reformat + bloat-gated CCR offload.
 //!
-//! # Why this module exists
+//! # The architecture in one paragraph
 //!
-//! Before Phase 3g each compressor (SmartCrusher, DiffCompressor,
-//! LogCompressor, SearchCompressor, TagProtector) carried its own
-//! ad-hoc decision tree: parse, score, drop, optionally emit a CCR
-//! marker. SmartCrusher's 3c.2 refactor made the decision explicit
-//! inside that one transform; the rest still decide privately. That
-//! makes the system hard to reason about (which transforms ran in
-//! what order, how much each saved, why CCR fired or didn't) and
-//! impossible to extend without copying the same scaffolding.
+//! With CCR (Compress-Cache-Retrieve), no transform here destroys
+//! information. Bytes drop from the wire, but the original payload is
+//! stashed in a [`crate::ccr::CcrStore`] keyed by a hash. The LLM
+//! retrieves any dropped piece via a tool call. So we don't have
+//! "lossless" vs "lossy" — we have two distinct *mechanisms*:
 //!
-//! This module replaces that scaffolding with two traits and an
-//! orchestrator:
+//! * [`ReformatTransform`] — pack denser without dropping anything.
+//!   Output bytes are semantically equivalent to input bytes
+//!   (`JsonMinifier` removes whitespace; future entries: log RLE,
+//!   schema extraction, comment stripping).
+//! * [`OffloadTransform`] — drop bytes from the wire, stash the
+//!   original via CCR, emit a retrieval marker. Required to expose a
+//!   cheap, **domain-specific** [`estimate_bloat`] method so the
+//!   orchestrator can decide whether the offload is worth the
+//!   retrieval round trip.
 //!
-//! * [`LosslessTransform`] — preserves all information; can run
-//!   first and stop early if structural compression suffices.
-//! * [`LossyTransform`] — drops bytes deliberately. Runs only after
-//!   the lossless pass. Reports a calibrated `confidence` so callers
-//!   and telemetry can tell which transforms were trusted vs taken
-//!   on faith.
-//! * [`CompressionPipeline`] — content-type-keyed dispatch over the
-//!   two transform sets, with budget gates between phases.
+//! [`CompressionPipeline`] dispatches both kinds by content type. It
+//! runs the reformat phase serially while running per-offload bloat
+//! estimators in parallel via `rayon::join` — so large inputs don't
+//! pay a sequential cost for the gating decision.
 //!
-//! # The pipeline contract
+//! # Why parallel + domain-specific bloat
 //!
-//! ```text
-//! input → DetectContentType (Magika, already shipped)
-//!       → LosslessTransforms[content_type]   stop if structural compression suffices
-//!       → BudgetCheck
-//!       → LossyTransforms[content_type]      includes ProseFieldCompressor (Phase 3g PR4)
-//!       → BudgetCheck
-//!       → CCR for everything beyond budget   (Phase 3g PR3+)
-//! ```
+//! Different content shapes have different "is this bloaty?" signals.
+//! A generic byte-redundancy heuristic (zlib over a sample) misses
+//! domain semantics: a log full of unique-but-irrelevant lines doesn't
+//! compress with zlib but should still trigger CCR. Each
+//! [`OffloadTransform`] carries its own structural estimator —
+//! [`crate::transforms::pipeline::offloads::LogOffload`] looks at line
+//! repetition + priority dilution; `DiffOffload` looks at the
+//! context-to-change ratio; `SearchOffload` looks at how matches
+//! cluster across files.
 //!
-//! PR1 ships traits + orchestrator + one real impl per trait
-//! ([`JsonMinifier`] for lossless, [`LineImportanceFilter`] for lossy).
-//! PR2 wraps existing structural transforms (Diff/Log/Search/Tag) in
-//! the trait shape. PR3 refactors SmartCrusher to use the orchestrator
-//! and starts retiring Python orchestration glue. PR4 adds
-//! ProseFieldCompressor (the parser/model boundary primitive). PR5
-//! migrates the remaining compressors and lets us delete the Python
-//! `ContentRouter` strategy dispatch.
+//! Estimators MUST be cheap (under O(n) on input length, no
+//! allocations beyond the structural read). They run in parallel with
+//! the reformat phase via `rayon::par_iter` — so a 100-offload pipeline
+//! over a 1MB log doesn't pay 100× the scan cost.
 //!
 //! # No regex
 //!
-//! By project convention (and feedback memory), nothing in this module
-//! uses the `regex` crate. JsonMinifier is `serde_json` round-trip;
-//! LineImportanceFilter walks `str::lines()` and consumes the existing
-//! `signals::LineImportanceDetector` trait (which uses aho-corasick
-//! plus an ASCII word-boundary post-filter, also no regex).
+//! Per project convention. JsonMinifier is `serde_json` round-trip;
+//! offload bloat estimators are byte-prefix checks and
+//! `signals::LineImportanceDetector` lookups (which use aho-corasick +
+//! ASCII word boundary).
+//!
+//! # Coverage today vs deferred
+//!
+//! Reformats:
+//! - [`reformats::JsonMinifier`] — JSON whitespace stripping.
+//! - [`reformats::LogTemplate`] — Drain-style template miner for
+//!   build/log output. Lossless — emits `[Template Tn: ...] (Nx)` +
+//!   variant table, every original line reconstructible.
+//!
+//! Offloads:
+//! - [`offloads::LogOffload`] — wraps the existing `LogCompressor`,
+//!   gates on per-line bloat heuristic.
+//! - [`offloads::DiffOffload`] — wraps the existing `DiffCompressor`,
+//!   gates on context-to-change ratio. Stores under the cache_key the
+//!   wrapped compressor mints (closes a leak in the parity-bound port).
+//! - [`offloads::DiffNoise`] — drops lockfile + whitespace-only hunks
+//!   via CCR. Runs alongside `DiffOffload`; both are useful for
+//!   different shapes of diff bloat.
+//! - `SearchOffload` exists at `offloads::search_offload::SearchOffload`
+//!   but is NOT in the default re-exports — modern agents use scoped
+//!   `rg`/`grep`, the marginal value didn't justify default registration.
+//!
+//! Deferred to later PRs:
+//! - **JSON Offload** — already lives at
+//!   `crate::transforms::smart_crusher::SmartCrusher`. Phase 3g PR3
+//!   refactors it to implement the [`OffloadTransform`] contract so
+//!   the orchestrator dispatches JSON arrays through it.
+//! - **ProseFieldCompressor** — Phase 3g PR4. Compresses prose-shaped
+//!   string fields inside structured payloads.
+//!
+//! [`estimate_bloat`]: traits::OffloadTransform::estimate_bloat
 
-pub mod json_minifier;
-pub mod line_importance_filter;
+pub mod config;
+pub mod offloads;
 pub mod orchestrator;
+pub mod reformats;
 pub mod traits;
 
-pub use json_minifier::JsonMinifier;
-pub use line_importance_filter::{LineImportanceFilter, LineImportanceFilterConfig};
-pub use orchestrator::{
-    CompressionPipeline, CompressionPipelineBuilder, PipelineConfig, PipelineResult,
+pub use config::{
+    BloatConfigs, ConfigError, DiffBloatConfig, DiffNoiseConfig, LogBloatConfig, LogTemplateConfig,
+    OffloadConfigs, OrchestratorConfig, PipelineConfig, ReformatConfigs, SearchBloatConfig,
 };
+// `SearchOffload` is intentionally NOT in the top-level re-export
+// (deprecated from default pipeline; reach via the explicit module
+// path if you want to opt in). See `offloads::search_offload` head
+// docs for rationale.
+pub use offloads::{DiffNoise, DiffOffload, LogOffload};
+pub use orchestrator::{CompressionPipeline, CompressionPipelineBuilder, PipelineResult};
+pub use reformats::{JsonMinifier, LogTemplate};
 pub use traits::{
-    CompressionContext, LosslessTransform, LossyTransform, TransformError, TransformResult,
+    CompressionContext, OffloadOutput, OffloadTransform, ReformatOutput, ReformatTransform,
+    TransformError,
 };

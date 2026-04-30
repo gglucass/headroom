@@ -76,6 +76,18 @@ unidiff = "0.4"
 # happen as a post-filter on the byte offsets the automaton returns.
 # Default features (std, perf-literal) keep the build small.
 aho-corasick = "1"
+# `rayon` powers the pipeline orchestrator's parallel reformat-vs-bloat
+# evaluation: while a worker thread runs the structural reformat passes,
+# another set of threads run the per-offload bloat estimators in parallel.
+# Reformat completion + all bloat estimates need to be ready before the
+# orchestrator can decide which offloads to actually execute, so two-phase
+# join semantics (`rayon::join` + `par_iter`) are exactly what we need.
+rayon = "1"
+# `toml` reads the default pipeline configuration shipped at
+# `config/pipeline.toml`. The defaults embed via `include_str!` so a
+# stock binary needs no external file; production deployments override
+# by loading their own TOML at startup.
+toml = "0.8"
 
 [dev-dependencies]
 proptest = "1"

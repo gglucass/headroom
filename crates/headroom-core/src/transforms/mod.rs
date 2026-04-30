@@ -41,9 +41,9 @@ pub use log_compressor::{
 };
 pub use magika_detector::{magika_detect, map_magika_label, MagikaDetectorError};
 pub use pipeline::{
-    CompressionContext, CompressionPipeline, CompressionPipelineBuilder, JsonMinifier,
-    LineImportanceFilter, LineImportanceFilterConfig, LosslessTransform, LossyTransform,
-    PipelineConfig, PipelineResult, TransformError, TransformResult,
+    CompressionContext, CompressionPipeline, CompressionPipelineBuilder, DiffNoise, DiffOffload,
+    JsonMinifier, LogOffload, LogTemplate, OffloadOutput, OffloadTransform, PipelineConfig,
+    PipelineResult, ReformatOutput, ReformatTransform, TransformError,
 };
 pub use search_compressor::{
     FileMatches, SearchCompressionResult, SearchCompressor, SearchCompressorConfig,
