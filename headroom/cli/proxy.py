@@ -278,6 +278,17 @@ from .main import main
     is_flag=True,
     help="Explicitly disable traffic learning even when --memory is set.",
 )
+@click.option(
+    "--min-evidence",
+    type=int,
+    default=None,
+    envvar="HEADROOM_MIN_EVIDENCE",
+    help=(
+        "Minimum number of times a pattern must be observed before it is "
+        "persisted to memory. Higher values reduce one-shot noise at the "
+        "cost of slower learning. Default: 5. (env: HEADROOM_MIN_EVIDENCE)"
+    ),
+)
 # Backend configuration
 @click.option(
     "--backend",
@@ -380,6 +391,7 @@ def proxy(
     memory_qdrant_api_key: str | None,
     learn: bool,
     no_learn: bool,
+    min_evidence: int | None,
     backend: str,
     anyllm_provider: str,
     anthropic_api_url: str | None,
@@ -542,6 +554,7 @@ def proxy(
         # Stateless mode disables learning (requires filesystem)
         traffic_learning_enabled=False if is_stateless else (learn and not no_learn),
         traffic_learning_agent_type=os.environ.get("HEADROOM_AGENT_TYPE", "unknown"),
+        traffic_learning_min_evidence=min_evidence if min_evidence is not None else 5,
         # Backend (Anthropic direct, Bedrock, LiteLLM, or any-llm)
         backend=backend,
         bedrock_region=bedrock_region or region,

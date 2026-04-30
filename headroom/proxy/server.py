@@ -534,6 +534,7 @@ class HeadroomProxy(
             self.traffic_learner = TrafficLearner(
                 user_id=os.environ.get("HEADROOM_USER_ID", os.environ.get("USER", "default")),
                 agent_type=config.traffic_learning_agent_type,
+                min_evidence=config.traffic_learning_min_evidence,
             )
 
         # Code graph file watcher (live reindex on file changes)
