@@ -21,6 +21,7 @@ pub mod content_detector;
 pub mod detection;
 pub mod diff_compressor;
 pub mod magika_detector;
+pub mod search_compressor;
 pub mod smart_crusher;
 pub mod unidiff_detector;
 
@@ -32,4 +33,8 @@ pub use diff_compressor::{
     DiffCompressionResult, DiffCompressor, DiffCompressorConfig, DiffCompressorStats,
 };
 pub use magika_detector::{magika_detect, map_magika_label, MagikaDetectorError};
+pub use search_compressor::{
+    FileMatches, SearchCompressionResult, SearchCompressor, SearchCompressorConfig,
+    SearchCompressorStats, SearchMatch,
+};
 pub use unidiff_detector::{detect_diff, is_diff};
