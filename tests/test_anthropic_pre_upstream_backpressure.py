@@ -170,10 +170,50 @@ class _DummyAnthropicHandler(AnthropicHandlerMixin):
         self.anthropic_pre_upstream_concurrency = (
             0 if anthropic_pre_upstream_sem is None else anthropic_pre_upstream_sem._value
         )
+        # Audit follow-up C3: dedicated compression executor + cancel-aware
+        # metrics. The mixin's compression path delegates to
+        # ``HeadroomProxy._run_compression_in_executor`` for bounded thread
+        # use; this dummy handler stands in for the proxy and must therefore
+        # provide the same surface.
+        import concurrent.futures as _cf
+        import threading as _threading
+
+        self._compression_executor = _cf.ThreadPoolExecutor(
+            max_workers=4, thread_name_prefix="dummy-compress"
+        )
+        self.compression_max_workers = 4
+        self._compression_in_flight = 0
+        self._compression_in_flight_max = 0
+        self._compression_leaked_threads = 0
+        self._compression_metrics_lock = _threading.Lock()
         self._upstream_delay_s = upstream_delay_s
         self._raise_during_critical = raise_during_critical
         self.upstream_enter_times: list[float] = []
         self.upstream_exit_times: list[float] = []
+
+    async def _run_compression_in_executor(self, fn, *, timeout):  # noqa: ANN001
+        # Mirror of ``HeadroomProxy._run_compression_in_executor`` for the
+        # mixin tests. Same metrics semantics; same timeout behavior.
+        loop = asyncio.get_running_loop()
+        start = time.perf_counter()
+        with self._compression_metrics_lock:
+            self._compression_in_flight += 1
+            self._compression_in_flight_max = max(
+                self._compression_in_flight_max, self._compression_in_flight
+            )
+
+        def _wrapped():
+            try:
+                return fn()
+            finally:
+                elapsed = time.perf_counter() - start
+                with self._compression_metrics_lock:
+                    self._compression_in_flight -= 1
+                    if elapsed > timeout:
+                        self._compression_leaked_threads += 1
+
+        future = loop.run_in_executor(self._compression_executor, _wrapped)
+        return await asyncio.wait_for(future, timeout=timeout)
 
     async def _next_request_id(self) -> str:
         # Unique IDs so log assertions remain disambiguated under parallelism.

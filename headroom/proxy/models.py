@@ -269,6 +269,25 @@ class ProxyConfig:
     # COMPRESSION_TIMEOUT_SECONDS guard; this bounds the memory leg too.
     anthropic_pre_upstream_memory_context_timeout_seconds: float = 2.0
 
+    # Bound the dedicated compression threadpool. CPU-bound Rust work runs
+    # here; the pool is separate from asyncio's default executor so other
+    # ``asyncio.to_thread`` callers (file IO, etc.) are not contended by
+    # compression bursts. ``None`` resolves to ``min(32, (cpu_count or 1) * 4)``,
+    # matching asyncio's default executor sizing today. Lower the cap to
+    # tighten resource use on multi-tenant hosts; raise it to handle larger
+    # bursts. CLI: ``--compression-max-workers``. Env:
+    # ``HEADROOM_COMPRESSION_MAX_WORKERS``.
+    #
+    # Background: ``asyncio.wait_for`` cancellation does NOT propagate into
+    # the threadpool worker that's running Rust code — once the worker has
+    # picked up the task, ``concurrent.futures.Future.cancel()`` returns
+    # ``False`` and the thread runs to completion. A bounded pool lets us
+    # observe the worst case (max queue depth, "leaked" threads that
+    # finished post-deadline) and fail fast under contention rather than
+    # piling unboundedly on the default executor. See
+    # ``HeadroomProxy._run_compression_in_executor``.
+    compression_max_workers: int | None = None
+
     @property
     def provider_api_overrides(self) -> ProviderApiOverrides:
         """Return provider API URL overrides as a dedicated provider config object."""

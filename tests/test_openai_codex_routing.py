@@ -154,6 +154,13 @@ class _DummyOpenAIHandler(OpenAIHandlerMixin):
         self.captured_request = (method, url, headers, body)
         return _ResponseStub()
 
+    async def _run_compression_in_executor(self, fn, *, timeout: float):
+        # Test stub for HeadroomProxy._run_compression_in_executor.
+        # The real implementation runs `fn` on a bounded thread pool with
+        # a wall-clock timeout; tests just need the callable invoked
+        # synchronously so MagicMock call_count assertions fire.
+        return fn()
+
     async def _stream_response(
         self,
         url: str,

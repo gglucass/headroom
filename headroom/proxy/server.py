@@ -25,11 +25,13 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import concurrent.futures
 import contextlib
 import json
 import logging
 import os
 import sys
+import threading
 import time
 from dataclasses import fields, is_dataclass
 from datetime import datetime, timezone
@@ -363,8 +365,13 @@ class HeadroomProxy(
             )
         )
 
-        # Compression cache store for token mode (session-scoped)
+        # Compression cache store for token mode (session-scoped). The dict
+        # itself is mutated under `_compression_caches_lock`; the per-session
+        # `CompressionCache` instances have their own internal lock guarding
+        # `_cache`/`_stable_hashes`/`_first_seen` against concurrent
+        # async-dispatched requests for the same session.
         self._compression_caches: dict[str, CompressionCache] = {}
+        self._compression_caches_lock = threading.RLock()
 
         self.logger = (
             RequestLogger(
@@ -420,6 +427,38 @@ class HeadroomProxy(
             )
         else:
             self.anthropic_pre_upstream_sem = None
+
+        # Dedicated compression executor — see C3 in the audit followup.
+        # Replaces ``asyncio.to_thread(...)`` for ``pipeline.apply()`` calls
+        # so that:
+        #   1. Compression work is bounded — CPU-bound Rust runs here, and
+        #      bursts cannot starve other ``asyncio.to_thread`` callers
+        #      sharing the loop's default executor (file IO, etc.).
+        #   2. Tasks that exceed ``COMPRESSION_TIMEOUT_SECONDS`` and complete
+        #      *after* the asyncio future was cancelled are counted in the
+        #      ``compression_leaked_threads`` gauge — Python cannot preempt
+        #      the worker, so this is the only signal that some pool slots
+        #      are sitting on stuck work.
+        _compression_max_cfg = config.compression_max_workers
+        if _compression_max_cfg is None:
+            _compression_max = min(32, (os.cpu_count() or 1) * 4)
+        else:
+            _compression_max = max(1, _compression_max_cfg)
+        self.compression_max_workers: int = _compression_max
+        self._compression_executor = concurrent.futures.ThreadPoolExecutor(
+            max_workers=_compression_max,
+            thread_name_prefix="headroom-compress",
+        )
+        # Gauge: currently-running compression tasks. Mutated under
+        # ``_compression_metrics_lock`` from worker threads + the asyncio
+        # event loop.
+        self._compression_in_flight: int = 0
+        # High-water mark for in-flight count.
+        self._compression_in_flight_max: int = 0
+        # Counter: threads that finished AFTER their asyncio future hit the
+        # timeout. Stuck-thread leak indicator.
+        self._compression_leaked_threads: int = 0
+        self._compression_metrics_lock = threading.Lock()
 
         # Backend for Anthropic API (direct, LiteLLM, or any-llm)
         # Supports: "anthropic" (direct), "bedrock", "vertex", "litellm-<provider>", or "anyllm"
@@ -560,27 +599,101 @@ class HeadroomProxy(
             },
         )
 
+    async def _run_compression_in_executor(
+        self,
+        fn,  # noqa: ANN001 — caller-supplied no-arg sync callable
+        *,
+        timeout: float,
+    ):
+        """Run a synchronous compression callable on the bounded executor
+        with cancel-aware metrics.
+
+        Replaces ``asyncio.wait_for(asyncio.to_thread(fn), timeout=...)``.
+
+        Why a dedicated executor: the proxy's compression path is CPU-bound
+        Rust work that releases the GIL via ``py.allow_threads``. Sharing
+        the loop's default executor (used by ``asyncio.to_thread``) means
+        a burst of slow compressions can starve unrelated ``to_thread``
+        callers (file IO, etc.). The compression executor is sized
+        independently via ``config.compression_max_workers``.
+
+        Why "cancel-aware metrics": when ``asyncio.wait_for`` times out, it
+        cancels the *asyncio future*. The underlying
+        ``concurrent.futures.Future`` from ``run_in_executor`` cannot
+        actually cancel a thread that has started — Python has no way to
+        preempt running CPython bytecode or in-flight Rust calls. The
+        worker keeps running to completion, ignored. We detect this by
+        recording the start timestamp and incrementing
+        ``_compression_leaked_threads`` from the worker's ``finally``
+        block when ``elapsed > timeout``. Operators can see leaked-thread
+        rate climbing in ``/stats`` before the pool fills up.
+
+        Args:
+            fn: A no-arg sync callable that runs the compression. Must not
+                raise asyncio Cancellation; if it does, the wrapper still
+                decrements the in-flight gauge but the leaked-thread
+                counter may double-count.
+            timeout: Wall-clock timeout for the asyncio side. The
+                executor worker keeps running past this (Python limitation
+                — see above), but at least the awaiter unblocks.
+
+        Returns:
+            Whatever ``fn()`` returns.
+
+        Raises:
+            ``asyncio.TimeoutError`` if the callable doesn't return within
+            ``timeout``. Any exception raised by ``fn`` propagates
+            unchanged.
+        """
+        loop = asyncio.get_running_loop()
+        start = time.monotonic()
+        with self._compression_metrics_lock:
+            self._compression_in_flight += 1
+            if self._compression_in_flight > self._compression_in_flight_max:
+                self._compression_in_flight_max = self._compression_in_flight
+
+        def _wrapped():  # noqa: ANN202
+            try:
+                return fn()
+            finally:
+                elapsed = time.monotonic() - start
+                with self._compression_metrics_lock:
+                    self._compression_in_flight -= 1
+                    if elapsed > timeout:
+                        self._compression_leaked_threads += 1
+
+        future = loop.run_in_executor(self._compression_executor, _wrapped)
+        return await asyncio.wait_for(future, timeout=timeout)
+
     def _get_compression_cache(self, session_id: str) -> CompressionCache:
-        """Get or create a CompressionCache for a session."""
-        if session_id not in self._compression_caches:
-            from headroom.cache.compression_cache import CompressionCache
+        """Get or create a CompressionCache for a session.
 
-            # Evict oldest caches if at capacity
-            if len(self._compression_caches) >= MAX_COMPRESSION_CACHE_SESSIONS:
-                # Remove oldest quarter to amortize cleanup cost
-                oldest_keys = list(self._compression_caches.keys())[
-                    : MAX_COMPRESSION_CACHE_SESSIONS // 4
-                ]
-                for key in oldest_keys:
-                    del self._compression_caches[key]
-                logger.info(
-                    "Evicted %d compression caches (exceeded %d max sessions)",
-                    len(oldest_keys),
-                    MAX_COMPRESSION_CACHE_SESSIONS,
-                )
+        Thread-safe under `_compression_caches_lock`: a concurrent pair of
+        `_get_compression_cache(session_id)` calls (e.g. two async requests
+        for the same conversation) must return the **same** instance,
+        otherwise the per-session cache state splits and the two halves
+        diverge across requests.
+        """
+        with self._compression_caches_lock:
+            if session_id not in self._compression_caches:
+                from headroom.cache.compression_cache import CompressionCache
 
-            self._compression_caches[session_id] = CompressionCache()
-        return self._compression_caches[session_id]
+                # Evict oldest caches if at capacity
+                if len(self._compression_caches) >= MAX_COMPRESSION_CACHE_SESSIONS:
+                    # Remove oldest quarter to amortize cleanup cost
+                    oldest_keys = list(self._compression_caches.keys())[
+                        : MAX_COMPRESSION_CACHE_SESSIONS // 4
+                    ]
+                    for key in oldest_keys:
+                        del self._compression_caches[key]
+                    logger.info(
+                        "Evicted %d compression caches (exceeded %d max sessions)",
+                        len(oldest_keys),
+                        MAX_COMPRESSION_CACHE_SESSIONS,
+                    )
+
+                self._compression_caches[session_id] = CompressionCache()
+            return self._compression_caches[session_id]
 
     def _setup_code_aware(self, config: ProxyConfig, transforms: list) -> str:
         """Set up code-aware compression if enabled.
@@ -1282,6 +1395,12 @@ def create_app(config: ProxyConfig | None = None) -> FastAPI:
         ws_active_relay_tasks = (
             ws_registry.active_relay_task_count() if ws_registry is not None else 0
         )
+        # Snapshot compression executor metrics under their lock (gauges
+        # mutated by worker threads; not safe to read without).
+        with proxy._compression_metrics_lock:
+            _comp_in_flight = proxy._compression_in_flight
+            _comp_in_flight_max = proxy._compression_in_flight_max
+            _comp_leaked = proxy._compression_leaked_threads
         return {
             "anthropic_pre_upstream": {
                 "enabled": proxy.anthropic_pre_upstream_sem is not None,
@@ -1295,6 +1414,13 @@ def create_app(config: ProxyConfig | None = None) -> FastAPI:
                     proxy.anthropic_pre_upstream_memory_context_timeout_seconds
                 ),
                 "codex_ws_gated": False,
+            },
+            "compression_executor": {
+                "max_workers": proxy.compression_max_workers,
+                "in_flight": _comp_in_flight,
+                "in_flight_max": _comp_in_flight_max,
+                "leaked_threads_total": _comp_leaked,
+                "source": ("auto" if config.compression_max_workers is None else "explicit"),
             },
             "websocket_sessions": {
                 "active_sessions": ws_active_sessions,
@@ -1515,14 +1641,20 @@ def create_app(config: ProxyConfig | None = None) -> FastAPI:
         except Exception:
             logger.warning("Failed to log /stats summary payload")
 
-        # Compression cache stats (token mode)
+        # Compression cache stats (token mode). Snapshot the cache list under
+        # the dict lock so a concurrent eviction can't mutate the dict while
+        # we iterate. Each per-session `get_stats()` is independently
+        # thread-safe via the cache's own internal lock.
         compression_cache_stats: dict = {}
         if proxy.config.mode == PROXY_MODE_TOKEN and proxy._compression_caches:
+            with proxy._compression_caches_lock:
+                _caches_snapshot = list(proxy._compression_caches.values())
+                _active_sessions = len(proxy._compression_caches)
             total_entries = 0
             total_hits = 0
             total_misses = 0
             total_tokens_saved = 0
-            for cache in proxy._compression_caches.values():
+            for cache in _caches_snapshot:
                 s = cache.get_stats()
                 total_entries += s.get("entries", 0)
                 total_hits += s.get("hits", 0)
@@ -1530,7 +1662,7 @@ def create_app(config: ProxyConfig | None = None) -> FastAPI:
                 total_tokens_saved += s.get("total_tokens_saved", 0)
             compression_cache_stats = {
                 "mode": PROXY_MODE_TOKEN,
-                "active_sessions": len(proxy._compression_caches),
+                "active_sessions": _active_sessions,
                 "total_entries": total_entries,
                 "total_hits": total_hits,
                 "total_misses": total_misses,
@@ -2430,6 +2562,23 @@ def run_server(
     app_target: Any
     uvicorn_kwargs: dict[str, Any] = {}
     if workers > 1:
+        # CCR / compression-cache / prefix-tracker / TOIN state are all
+        # per-process. Round-robin across workers fragments these caches
+        # and produces silent retrieval failures for `Retrieve original:
+        # hash=X` markers and avoidable cache busts on the upstream
+        # provider. See the "Multi-worker deployment — CCR fragmentation"
+        # section in RUST_DEV.md for the full failure modes and the
+        # sticky-session workaround.
+        logger.warning(
+            "Headroom is running with workers=%d. The in-memory CCR store, "
+            "compression cache, prefix tracker, and TOIN state are all "
+            "per-process; multi-worker deployments produce silent retrieval "
+            "failures and avoidable cache busts when sessions land on different "
+            "workers. Run --workers 1 (or place a sticky-session load balancer "
+            "in front of multiple --workers 1 processes). See RUST_DEV.md → "
+            "'Multi-worker deployment — CCR fragmentation'.",
+            workers,
+        )
         os.environ[_MULTI_WORKER_CONFIG_ENV] = json.dumps(_proxy_config_payload(config))
         app_target = "headroom.proxy.server:create_app_from_env"
         uvicorn_kwargs["factory"] = True

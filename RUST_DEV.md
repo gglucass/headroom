@@ -285,3 +285,64 @@ doesn't rediscover them.
 - **`rust-toolchain.toml`** pins `channel = "stable"` rather than a specific
   version so CI picks up the same toolchain the local box uses. Tighten to a
   pinned version (e.g. `1.78`) once the port stabilizes.
+
+## Multi-worker deployment — CCR fragmentation
+
+**Recommendation: run the proxy with `--workers 1` (the default).** The
+in-memory CCR store is per-process. Multi-worker uvicorn deployments produce
+silent retrieval failures — and `Compress-Cache-Retrieve` is the lossless
+half of the pipeline.
+
+### What goes wrong with `--workers N > 1`
+
+Each uvicorn worker is a separate Python process. Each process holds its own
+copies of:
+
+1. **`InMemoryCcrStore`** (`crates/headroom-core/src/ccr.rs:78`) — the
+   sharded `DashMap` mapping `hash → original_content` for content the
+   compressor replaced with `Retrieve original: hash=X` markers.
+2. **`HeadroomProxy._compression_caches`** (`headroom/proxy/server.py:367`)
+   — the per-session `CompressionCache` dict.
+3. **`HeadroomProxy.session_tracker_store`** — per-session prefix-tracker
+   state derived from Anthropic's `cache_read_input_tokens` responses.
+4. **TOIN learner state** — pattern statistics used to bias the compressor.
+
+When uvicorn round-robins requests across workers, a session whose turn-1
+landed on worker A may have turn-2 land on worker B. Worker B has zero
+knowledge of what worker A did:
+
+- The CCR marker `Retrieve original: hash=X` is in the conversation, but
+  worker B's `InMemoryCcrStore` returns `None` for `X`. The marker stays
+  in-context as an opaque directive the model can't act on. Tokens spent,
+  no retrieval value.
+- The `CompressionCache` on worker B has no replay entries → every fresh
+  tool_result is recompressed from scratch, even content that worker A
+  already compressed once. CPU wasted; observable as compression latency
+  doubling on round-robin sessions.
+- The `prefix_tracker` on worker B starts at `frozen_message_count = 0` →
+  worker B compresses positions that Anthropic has already cached. Cache
+  bust + write premium paid on every cross-worker session turn.
+
+### What works today
+
+`--workers 1` is the only fully-supported configuration. The proxy is async
+and a single worker handles thousands of concurrent requests via the event
+loop; CPU-bound Rust work releases the GIL via `py.allow_threads`, so
+vertical scaling on one process is the intended path.
+
+### What we'd need for multi-worker
+
+A backend implementation of the `CcrStore` trait
+(`crates/headroom-core/src/ccr.rs`) backed by a shared store — Redis,
+Memcached, or a sticky-session reverse proxy. The `_compression_caches`
+and `session_tracker_store` would also need shared backing. None of this
+is implemented yet. If you need horizontal scale today, run multiple
+single-worker proxy processes behind a sticky-session load balancer (hash
+on session_id) — that pins each session to one worker and avoids the
+fragmentation entirely.
+
+### Detecting it in the wild
+
+The proxy emits a `WARNING`-level log line on startup if it detects
+`WEB_CONCURRENCY` or uvicorn `--workers` set to anything > 1, pointing
+operators at this section.

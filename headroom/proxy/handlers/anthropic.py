@@ -775,17 +775,15 @@ class AnthropicHandlerMixin:
                         comp_cache.mark_stable_from_messages(messages, frozen_message_count)
 
                         async with stage_timer.measure("compression_first_stage"):
-                            result = await asyncio.wait_for(
-                                asyncio.to_thread(
-                                    lambda: self.anthropic_pipeline.apply(
-                                        messages=working_messages,
-                                        model=model,
-                                        model_limit=context_limit,
-                                        context=extract_user_query(working_messages),
-                                        frozen_message_count=frozen_message_count,
-                                        biases=biases,
-                                        request_id=request_id,
-                                    )
+                            result = await self._run_compression_in_executor(
+                                lambda: self.anthropic_pipeline.apply(
+                                    messages=working_messages,
+                                    model=model,
+                                    model_limit=context_limit,
+                                    context=extract_user_query(working_messages),
+                                    frozen_message_count=frozen_message_count,
+                                    biases=biases,
+                                    request_id=request_id,
                                 ),
                                 timeout=COMPRESSION_TIMEOUT_SECONDS,
                             )
@@ -816,17 +814,15 @@ class AnthropicHandlerMixin:
                         optimized_tokens = tokenizer.count_messages(optimized_messages)
                     elif not is_cache_mode(self.config.mode):
                         async with stage_timer.measure("compression_first_stage"):
-                            result = await asyncio.wait_for(
-                                asyncio.to_thread(
-                                    lambda: self.anthropic_pipeline.apply(
-                                        messages=messages,
-                                        model=model,
-                                        model_limit=context_limit,
-                                        context=extract_user_query(messages),
-                                        frozen_message_count=frozen_message_count,
-                                        biases=biases,
-                                        request_id=request_id,
-                                    )
+                            result = await self._run_compression_in_executor(
+                                lambda: self.anthropic_pipeline.apply(
+                                    messages=messages,
+                                    model=model,
+                                    model_limit=context_limit,
+                                    context=extract_user_query(messages),
+                                    frozen_message_count=frozen_message_count,
+                                    biases=biases,
+                                    request_id=request_id,
                                 ),
                                 timeout=COMPRESSION_TIMEOUT_SECONDS,
                             )
@@ -848,17 +844,15 @@ class AnthropicHandlerMixin:
                         if delta is not None:
                             stable_forwarded_prefix, delta_messages = delta
                             if delta_messages:
-                                result = await asyncio.wait_for(
-                                    asyncio.to_thread(
-                                        lambda: self.anthropic_pipeline.apply(
-                                            messages=delta_messages,
-                                            model=model,
-                                            model_limit=context_limit,
-                                            context=extract_user_query(delta_messages),
-                                            frozen_message_count=0,
-                                            biases=biases,
-                                            request_id=request_id,
-                                        )
+                                result = await self._run_compression_in_executor(
+                                    lambda: self.anthropic_pipeline.apply(
+                                        messages=delta_messages,
+                                        model=model,
+                                        model_limit=context_limit,
+                                        context=extract_user_query(delta_messages),
+                                        frozen_message_count=0,
+                                        biases=biases,
+                                        request_id=request_id,
                                     ),
                                     timeout=COMPRESSION_TIMEOUT_SECONDS,
                                 )

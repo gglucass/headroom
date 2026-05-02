@@ -364,16 +364,14 @@ class OpenAIHandlerMixin:
                     # Re-freeze boundary
                     openai_frozen_count = comp_cache.compute_frozen_count(messages)
 
-                    result = await asyncio.wait_for(
-                        asyncio.to_thread(
-                            lambda: self.openai_pipeline.apply(
-                                messages=working_messages,
-                                model=model,
-                                model_limit=context_limit,
-                                context=extract_user_query(working_messages),
-                                frozen_message_count=openai_frozen_count,
-                                biases=_hook_biases,
-                            )
+                    result = await self._run_compression_in_executor(
+                        lambda: self.openai_pipeline.apply(
+                            messages=working_messages,
+                            model=model,
+                            model_limit=context_limit,
+                            context=extract_user_query(working_messages),
+                            frozen_message_count=openai_frozen_count,
+                            biases=_hook_biases,
                         ),
                         timeout=COMPRESSION_TIMEOUT_SECONDS,
                     )
@@ -389,16 +387,14 @@ class OpenAIHandlerMixin:
                     # so tokens_saved captures both Zone 1 + Zone 2 savings.
                     optimized_tokens = result.tokens_after
                 else:
-                    result = await asyncio.wait_for(
-                        asyncio.to_thread(
-                            lambda: self.openai_pipeline.apply(
-                                messages=messages,
-                                model=model,
-                                model_limit=context_limit,
-                                context=extract_user_query(messages),
-                                frozen_message_count=openai_frozen_count,
-                                biases=_hook_biases,
-                            )
+                    result = await self._run_compression_in_executor(
+                        lambda: self.openai_pipeline.apply(
+                            messages=messages,
+                            model=model,
+                            model_limit=context_limit,
+                            context=extract_user_query(messages),
+                            frozen_message_count=openai_frozen_count,
+                            biases=_hook_biases,
                         ),
                         timeout=COMPRESSION_TIMEOUT_SECONDS,
                     )
@@ -1152,14 +1148,12 @@ class OpenAIHandlerMixin:
         if _should_compress and _license_ok:
             try:
                 context_limit = self.openai_provider.get_context_limit(model)
-                result = await asyncio.wait_for(
-                    asyncio.to_thread(
-                        lambda: self.openai_pipeline.apply(
-                            messages=messages,
-                            model=model,
-                            model_limit=context_limit,
-                            context=extract_user_query(messages),
-                        )
+                result = await self._run_compression_in_executor(
+                    lambda: self.openai_pipeline.apply(
+                        messages=messages,
+                        model=model,
+                        model_limit=context_limit,
+                        context=extract_user_query(messages),
                     ),
                     timeout=COMPRESSION_TIMEOUT_SECONDS,
                 )
@@ -1647,14 +1641,12 @@ class OpenAIHandlerMixin:
 
                         context_limit = self.openai_provider.get_context_limit(model)
                         async with stage_timer.measure("compression"):
-                            result = await asyncio.wait_for(
-                                asyncio.to_thread(
-                                    lambda: self.openai_pipeline.apply(
-                                        messages=messages,
-                                        model=model,
-                                        model_limit=context_limit,
-                                        context=extract_user_query(messages),
-                                    )
+                            result = await self._run_compression_in_executor(
+                                lambda: self.openai_pipeline.apply(
+                                    messages=messages,
+                                    model=model,
+                                    model_limit=context_limit,
+                                    context=extract_user_query(messages),
                                 ),
                                 timeout=COMPRESSION_TIMEOUT_SECONDS,
                             )
