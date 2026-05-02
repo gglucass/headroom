@@ -636,12 +636,28 @@ class OpenAIHandlerMixin:
                                     query=None,
                                 )
 
-                # Inject memory tools
-                if self.memory_handler.config.inject_tools:
-                    tools, mem_tools_injected = self.memory_handler.inject_tools(tools, "openai")
-                    if mem_tools_injected:
-                        memory_tools_injected = True
-                        logger.info(f"[{request_id}] Memory: Injected memory tools (openai)")
+                # Inject memory tools — PR-A7 (P0-6) routes through
+                # `apply_session_sticky_memory_tools` so byte-stable across turns.
+                from headroom.proxy.helpers import (
+                    apply_session_sticky_memory_tools as _apply_sticky_mem_tools,
+                )
+
+                memory_tool_defs = (
+                    self.memory_handler.compute_memory_tool_definitions("openai")
+                    if self.memory_handler.config.inject_tools
+                    else []
+                )
+                tools, mem_tools_injected = _apply_sticky_mem_tools(
+                    provider="openai",
+                    session_id=openai_session_id,
+                    request_id=request_id,
+                    existing_tools=tools,
+                    memory_tools_to_inject=memory_tool_defs,
+                    inject_this_turn=bool(self.memory_handler.config.inject_tools),
+                )
+                if mem_tools_injected:
+                    memory_tools_injected = True
+                    logger.info(f"[{request_id}] Memory: Injected memory tools (openai)")
             except Exception as e:
                 logger.warning(f"[{request_id}] Memory injection failed: {e}")
 
@@ -1423,32 +1439,47 @@ class OpenAIHandlerMixin:
                                     query=user_query,
                                 )
 
-                # Inject memory tools (Responses API format)
-                if self.memory_handler.config.inject_tools:
-                    resp_tools = body.get("tools") or []
-                    resp_tools, mem_tools_injected = self.memory_handler.inject_tools(
-                        resp_tools, "openai"
-                    )
-                    if mem_tools_injected:
-                        # Convert Chat Completions format to Responses API format
-                        converted_tools = []
-                        for t in resp_tools:
-                            if t.get("type") == "function" and "function" in t:
-                                fn = t["function"]
-                                converted_tools.append(
-                                    {
-                                        "type": "function",
-                                        "name": fn.get("name"),
-                                        "description": fn.get("description", ""),
-                                        "parameters": fn.get("parameters", {}),
-                                    }
-                                )
-                            else:
-                                converted_tools.append(t)
-                        body["tools"] = converted_tools
-                        logger.info(
-                            f"[{request_id}] Memory: Injected memory tools (openai/responses)"
+                # Inject memory tools (Responses API format) — PR-A7 (P0-6).
+                # Pre-convert the Chat-Completions schema to Responses API
+                # format BEFORE handing to the sticky tracker so the
+                # canonical bytes pinned in turn 1 already reflect the
+                # exact bytes that will hit the wire.
+                from headroom.proxy.helpers import (
+                    apply_session_sticky_memory_tools as _apply_sticky_mem_tools_resp,
+                )
+
+                memory_tool_defs_chat = (
+                    self.memory_handler.compute_memory_tool_definitions("openai")
+                    if self.memory_handler.config.inject_tools
+                    else []
+                )
+                memory_tool_defs_responses: list[dict[str, Any]] = []
+                for t in memory_tool_defs_chat:
+                    if t.get("type") == "function" and "function" in t:
+                        fn = t["function"]
+                        memory_tool_defs_responses.append(
+                            {
+                                "type": "function",
+                                "name": fn.get("name"),
+                                "description": fn.get("description", ""),
+                                "parameters": fn.get("parameters", {}),
+                            }
                         )
+                    else:
+                        memory_tool_defs_responses.append(t)
+
+                resp_tools = body.get("tools") or []
+                resp_tools, mem_tools_injected = _apply_sticky_mem_tools_resp(
+                    provider="openai",
+                    session_id=_responses_session_id,
+                    request_id=request_id,
+                    existing_tools=resp_tools,
+                    memory_tools_to_inject=memory_tool_defs_responses,
+                    inject_this_turn=bool(self.memory_handler.config.inject_tools),
+                )
+                if mem_tools_injected:
+                    body["tools"] = resp_tools
+                    logger.info(f"[{request_id}] Memory: Injected memory tools (openai/responses)")
             except Exception as e:
                 logger.warning(f"[{request_id}] Memory injection failed (responses): {e}")
 
@@ -2024,51 +2055,68 @@ class OpenAIHandlerMixin:
                                 f"of context into instructions"
                             )
 
-                    # Inject memory tools (Responses API format)
-                    if self.memory_handler.config.inject_tools:
-                        ws_tools = ws_response_body.get("tools") or []
-                        ws_tools, mem_injected = self.memory_handler.inject_tools(
-                            ws_tools, "openai"
-                        )
-                        if mem_injected:
-                            converted_tools = []
-                            for t in ws_tools:
-                                if t.get("type") == "function" and "function" in t:
-                                    fn = t["function"]
-                                    converted_tools.append(
-                                        {
-                                            "type": "function",
-                                            "name": fn.get("name"),
-                                            "description": fn.get("description", ""),
-                                            "parameters": fn.get("parameters", {}),
-                                        }
-                                    )
-                                else:
-                                    converted_tools.append(t)
-                            ws_response_body["tools"] = converted_tools
+                    # Inject memory tools (Responses API format) — PR-A7 (P0-6).
+                    # WS path uses a per-connection UUID; tracker scope is
+                    # the WS session (short-lived). Pre-convert to Responses
+                    # API format so canonical bytes match the wire format.
+                    from headroom.proxy.helpers import (
+                        apply_session_sticky_memory_tools as _apply_sticky_mem_tools_ws,
+                    )
 
-                            # Add memory instruction so the model uses
-                            # memory tools as persistent cross-session knowledge.
-                            mem_instruction = (
-                                "\n\n## Memory\n"
-                                "You have persistent memory via memory_search and "
-                                "memory_save tools. Memory stores knowledge across "
-                                "sessions — user info, project details, org context, "
-                                "decisions, architecture, conventions, anything worth "
-                                "remembering.\n\n"
-                                "- ALWAYS call memory_search BEFORE searching files "
-                                "when the user asks a question that could be answered "
-                                "from prior knowledge.\n"
-                                "- Call memory_save to store important facts, decisions, "
-                                "or context that would be useful in future sessions.\n"
-                                "- Memory is your first source of truth for anything "
-                                "not visible in the current conversation."
+                    ws_mem_defs_chat = (
+                        self.memory_handler.compute_memory_tool_definitions("openai")
+                        if self.memory_handler.config.inject_tools
+                        else []
+                    )
+                    ws_mem_defs_responses: list[dict[str, Any]] = []
+                    for t in ws_mem_defs_chat:
+                        if t.get("type") == "function" and "function" in t:
+                            fn = t["function"]
+                            ws_mem_defs_responses.append(
+                                {
+                                    "type": "function",
+                                    "name": fn.get("name"),
+                                    "description": fn.get("description", ""),
+                                    "parameters": fn.get("parameters", {}),
+                                }
                             )
-                            existing_instr = ws_response_body.get("instructions") or ""
-                            ws_response_body["instructions"] = existing_instr + mem_instruction
-                            logger.info(
-                                f"[{request_id}] WS Memory: Injected memory tools + instruction"
-                            )
+                        else:
+                            ws_mem_defs_responses.append(t)
+
+                    ws_tools = ws_response_body.get("tools") or []
+                    ws_tools, mem_injected = _apply_sticky_mem_tools_ws(
+                        provider="openai",
+                        session_id=session_id,
+                        request_id=request_id,
+                        existing_tools=ws_tools,
+                        memory_tools_to_inject=ws_mem_defs_responses,
+                        inject_this_turn=bool(self.memory_handler.config.inject_tools),
+                    )
+                    if mem_injected:
+                        ws_response_body["tools"] = ws_tools
+
+                        # Add memory instruction so the model uses
+                        # memory tools as persistent cross-session knowledge.
+                        mem_instruction = (
+                            "\n\n## Memory\n"
+                            "You have persistent memory via memory_search and "
+                            "memory_save tools. Memory stores knowledge across "
+                            "sessions — user info, project details, org context, "
+                            "decisions, architecture, conventions, anything worth "
+                            "remembering.\n\n"
+                            "- ALWAYS call memory_search BEFORE searching files "
+                            "when the user asks a question that could be answered "
+                            "from prior knowledge.\n"
+                            "- Call memory_save to store important facts, decisions, "
+                            "or context that would be useful in future sessions.\n"
+                            "- Memory is your first source of truth for anything "
+                            "not visible in the current conversation."
+                        )
+                        existing_instr = ws_response_body.get("instructions") or ""
+                        ws_response_body["instructions"] = existing_instr + mem_instruction
+                        logger.info(
+                            f"[{request_id}] WS Memory: Injected memory tools + instruction"
+                        )
 
                     # Write back into envelope if it was wrapped
                     if "response" in body and isinstance(body["response"], dict):

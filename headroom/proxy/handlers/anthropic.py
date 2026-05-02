@@ -1268,69 +1268,87 @@ class AnthropicHandlerMixin:
                     except Exception as e:
                         logger.warning(f"[{request_id}] Memory: Context injection failed: {e}")
 
-                # Inject memory tools
-                if self.memory_handler.config.inject_tools:
-                    tools, mem_tools_injected = self.memory_handler.inject_tools(tools, "anthropic")
-                    if mem_tools_injected:
-                        memory_tools_injected = True
-                        tool_names = [
-                            t.get("name") or t.get("type", "")
-                            for t in tools
-                            if t.get("name", "").startswith("memory")
-                            or t.get("type", "").startswith("memory")
-                        ]
-                        logger.info(f"[{request_id}] Memory: Injected tools: {tool_names}")
+                # Inject memory tools — PR-A7 (P0-6) routes through
+                # `apply_session_sticky_memory_tools` so tool list bytes
+                # stay byte-stable across turns: once a session injects,
+                # every subsequent turn replays the same canonical bytes.
+                # `inject_this_turn` is True iff memory is enabled this
+                # turn (i.e. memory_handler.config.inject_tools and we
+                # have a memory_user_id, which the outer guard at line
+                # 1192 already enforces).
+                from headroom.proxy.helpers import (
+                    apply_session_sticky_memory_tools,
+                )
 
-                        # Add beta headers for native memory tool. PR-A6
-                        # (P5-50): use the deterministic `merge_anthropic_beta`
-                        # helper instead of ad-hoc string concat. Order:
-                        # client tokens first (preserved from session-sticky
-                        # baseline above), then Headroom-required tokens.
-                        # The session tracker already recorded the client
-                        # value; we append Headroom-required tokens here so
-                        # the next turn re-applies them deterministically.
-                        beta_headers = self.memory_handler.get_beta_headers()
-                        if beta_headers:
-                            from headroom.proxy.helpers import (
-                                log_beta_header_merge as _log_beta_header_merge_mem,
-                            )
-                            from headroom.proxy.helpers import (
-                                merge_anthropic_beta,
-                            )
+                memory_tool_defs = (
+                    self.memory_handler.compute_memory_tool_definitions("anthropic")
+                    if self.memory_handler.config.inject_tools
+                    else []
+                )
+                tools, mem_tools_injected = apply_session_sticky_memory_tools(
+                    provider="anthropic",
+                    session_id=session_id,
+                    request_id=request_id,
+                    existing_tools=tools,
+                    memory_tools_to_inject=memory_tool_defs,
+                    inject_this_turn=bool(self.memory_handler.config.inject_tools),
+                )
+                if mem_tools_injected:
+                    memory_tools_injected = True
+                    tool_names = [
+                        t.get("name") or t.get("type", "")
+                        for t in tools
+                        if t.get("name", "").startswith("memory")
+                        or t.get("type", "").startswith("memory")
+                    ]
+                    logger.info(f"[{request_id}] Memory: Injected tools: {tool_names}")
 
-                            for key, value in beta_headers.items():
-                                if key.lower() != "anthropic-beta":
-                                    # Defensive: memory handler currently
-                                    # only emits anthropic-beta. Any future
-                                    # provider-specific beta header would
-                                    # need its own merge helper.
-                                    headers[key] = value
-                                    continue
-                                existing_value = headers.get(key, "")
-                                required_tokens = [t.strip() for t in value.split(",") if t.strip()]
-                                merged = merge_anthropic_beta(existing_value, required_tokens)
-                                _existing_count = (
-                                    len([t for t in existing_value.split(",") if t.strip()])
-                                    if existing_value
-                                    else 0
-                                )
-                                _merged_count = (
-                                    len([t for t in merged.split(",") if t.strip()])
-                                    if merged
-                                    else 0
-                                )
-                                headers[key] = merged
-                                _log_beta_header_merge_mem(
-                                    provider="anthropic",
-                                    session_id=session_id,
-                                    client_betas_count=_existing_count,
-                                    sticky_betas_count=_merged_count,
-                                    headroom_added=required_tokens,
-                                    request_id=request_id,
-                                )
-                                logger.info(
-                                    f"[{request_id}] Memory: Added beta header: {key}={merged}"
-                                )
+                    # Add beta headers for native memory tool. PR-A6
+                    # (P5-50): use the deterministic `merge_anthropic_beta`
+                    # helper instead of ad-hoc string concat. Order:
+                    # client tokens first (preserved from session-sticky
+                    # baseline above), then Headroom-required tokens.
+                    # The session tracker already recorded the client
+                    # value; we append Headroom-required tokens here so
+                    # the next turn re-applies them deterministically.
+                    beta_headers = self.memory_handler.get_beta_headers()
+                    if beta_headers:
+                        from headroom.proxy.helpers import (
+                            log_beta_header_merge as _log_beta_header_merge_mem,
+                        )
+                        from headroom.proxy.helpers import (
+                            merge_anthropic_beta,
+                        )
+
+                        for key, value in beta_headers.items():
+                            if key.lower() != "anthropic-beta":
+                                # Defensive: memory handler currently
+                                # only emits anthropic-beta. Any future
+                                # provider-specific beta header would
+                                # need its own merge helper.
+                                headers[key] = value
+                                continue
+                            existing_value = headers.get(key, "")
+                            required_tokens = [t.strip() for t in value.split(",") if t.strip()]
+                            merged = merge_anthropic_beta(existing_value, required_tokens)
+                            _existing_count = (
+                                len([t for t in existing_value.split(",") if t.strip()])
+                                if existing_value
+                                else 0
+                            )
+                            _merged_count = (
+                                len([t for t in merged.split(",") if t.strip()]) if merged else 0
+                            )
+                            headers[key] = merged
+                            _log_beta_header_merge_mem(
+                                provider="anthropic",
+                                session_id=session_id,
+                                client_betas_count=_existing_count,
+                                sticky_betas_count=_merged_count,
+                                headroom_added=required_tokens,
+                                request_id=request_id,
+                            )
+                            logger.info(f"[{request_id}] Memory: Added beta header: {key}={merged}")
 
             if memory_context_injected or memory_tools_injected:
                 remembered_event = self.pipeline_extensions.emit(

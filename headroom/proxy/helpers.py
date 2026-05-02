@@ -975,6 +975,495 @@ def log_beta_header_merge(
     )
 
 
+# ---------------------------------------------------------------------------
+# Memory-tool injection session-stickiness (PR-A7 — closes P0-6).
+# ---------------------------------------------------------------------------
+#
+# Memory adds `memory_save` / `memory_search` tool definitions to
+# `body["tools"]` when memory is enabled for a request. The cache-killer
+# pattern motivated by guide §6.3 #2 ("tool list change → cache bust"):
+#
+#   * Mid-session toggle: memory is enabled in turn N (tool definitions
+#     injected) and disabled in turn N+1 (tool list shrinks). The next
+#     turn's prefix bytes hash differently, prefix-cache misses, and the
+#     full prompt re-runs at provider cost.
+#
+#   * Tool definition drift: memory adds the SAME logical tool but the
+#     bytes differ across turns (insertion order, dict key order, schema
+#     drift between deploys, etc.). Even with the tool list intact the
+#     prefix bytes change.
+#
+# PR-A7 introduces:
+#
+#   * `SessionToolTracker`: bounded LRU keyed by (provider, session_id)
+#     storing the GOLDEN tool-definition bytes injected on the first
+#     turn. Subsequent turns of that session always inject the same
+#     bytes — even if memory is disabled mid-session (sticky-on per
+#     guide §6.3 #2). Provider-aware so the same `session_id` under
+#     two providers keeps independent state.
+#
+# The golden bytes are produced by `serialize_body_canonical` of the
+# tool definition object so they are deterministic across deploys
+# regardless of dict insertion ordering quirks.
+#
+# Operator opt-in `HEADROOM_TOOL_INJECTION_STICKY=disabled` short-
+# circuits the tracker; per-turn decision flows through unchanged. That
+# mode is loud and explicit per realignment build constraint #4 — NOT a
+# silent fallback. It exists for diagnostic shadow tracing / emergency
+# rollback only.
+
+_TOOL_INJECTION_STICKY_ENV = "HEADROOM_TOOL_INJECTION_STICKY"
+ToolInjectionStickyMode = Literal["enabled", "disabled"]
+_TOOL_INJECTION_STICKY_DEFAULT: ToolInjectionStickyMode = "enabled"
+
+_TOOL_TRACKER_MAX_SESSIONS_ENV = "HEADROOM_TOOL_TRACKER_MAX_SESSIONS"
+_TOOL_TRACKER_MAX_SESSIONS_DEFAULT = 1000
+
+
+def get_tool_injection_sticky_mode() -> ToolInjectionStickyMode:
+    """Return the active memory-tool stickiness mode.
+
+    Read at request time so operators can flip behaviour without a
+    restart. Unknown values raise loudly per the no-silent-fallback
+    build constraint.
+    """
+    raw = os.environ.get(_TOOL_INJECTION_STICKY_ENV, "").strip().lower()
+    if not raw:
+        return _TOOL_INJECTION_STICKY_DEFAULT
+    if raw in ("enabled", "disabled"):
+        return cast(ToolInjectionStickyMode, raw)
+    raise ValueError(
+        f"Invalid {_TOOL_INJECTION_STICKY_ENV}={raw!r}; expected 'enabled' or 'disabled'"
+    )
+
+
+def get_tool_tracker_max_sessions() -> int:
+    """Return the LRU bound for `SessionToolTracker` (sessions cap)."""
+    raw = os.environ.get(_TOOL_TRACKER_MAX_SESSIONS_ENV, "").strip()
+    if not raw:
+        return _TOOL_TRACKER_MAX_SESSIONS_DEFAULT
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise ValueError(
+            f"Invalid {_TOOL_TRACKER_MAX_SESSIONS_ENV}={raw!r}; expected positive int"
+        ) from exc
+    if value <= 0:
+        raise ValueError(f"Invalid {_TOOL_TRACKER_MAX_SESSIONS_ENV}={raw!r}; expected positive int")
+    return value
+
+
+def serialize_tool_definition_canonical(tool_definition: dict[str, Any]) -> bytes:
+    """Deterministic byte serialization of a single memory tool definition.
+
+    Uses ``serialize_body_canonical`` semantics (compact separators, UTF-8,
+    no ASCII escaping). Python 3.7+ dict insertion order is preserved by
+    ``json.dumps`` so callers must construct the tool definition with a
+    stable key order — which the static schemas in
+    ``headroom/proxy/memory_handler.py`` and
+    ``headroom/proxy/memory_tool_adapter.py`` already do.
+
+    Returned bytes pin the golden tool definition for a session: every
+    follow-up turn must inject byte-equal output to keep the prefix
+    cache hot.
+    """
+    return serialize_body_canonical(tool_definition)
+
+
+class SessionToolTracker:
+    """Bounded LRU tracker recording per-session memory-tool injection state.
+
+    Once memory injects tool definitions into a session, future requests
+    in that session always inject the byte-equal same definitions —
+    never toggling on/off mid-session (guide §6.3 #2). The first turn's
+    canonical bytes are stored as the golden definition; subsequent
+    turns reuse those bytes verbatim.
+
+    State per session: ordered list of (tool_name → golden_bytes)
+    pairs. Order is preserved so the rebuilt tool list matches the
+    original injection order.
+
+    Bounded by ``max_sessions`` (default 1000) via ``OrderedDict`` LRU
+    eviction: hits move-to-end; overflow pops oldest. Reentrant lock so
+    future callers from inside another locked method don't self-deadlock
+    (mirrors `SessionBetaTracker` / `CompressionCache` pattern).
+
+    The tracker is provider-aware: the same ``session_id`` for Anthropic
+    and OpenAI keeps independent state (the tool schemas differ in
+    format).
+    """
+
+    def __init__(self, max_sessions: int | None = None) -> None:
+        if max_sessions is None:
+            max_sessions = get_tool_tracker_max_sessions()
+        if max_sessions <= 0:
+            raise ValueError("max_sessions must be > 0")
+        self._max_sessions: int = max_sessions
+        self._lock = threading.RLock()
+        # Value is an OrderedDict[tool_name -> golden_definition_bytes].
+        # Storing per-tool bytes (not the entire tools list) keeps the
+        # tracker resilient to non-memory tool list changes by the client
+        # (which are the client's responsibility, not ours to gate).
+        self._sessions: OrderedDict[tuple[str, str], OrderedDict[str, bytes]] = OrderedDict()
+
+    @property
+    def active_sessions(self) -> int:
+        with self._lock:
+            return len(self._sessions)
+
+    def _key(self, provider: str, session_id: str) -> tuple[str, str]:
+        return (provider, session_id)
+
+    def should_inject(self, provider: str, session_id: str) -> bool:
+        """Return True iff this session has previously injected memory tools.
+
+        Used by the sticky-on path: when memory is disabled this turn but
+        the session previously injected, we still inject the golden bytes.
+        """
+        if not provider:
+            raise ValueError("provider must be non-empty")
+        if not session_id:
+            raise ValueError("session_id must be non-empty")
+        with self._lock:
+            entry = self._sessions.get(self._key(provider, session_id))
+            if entry is None:
+                return False
+            # LRU touch on read so the carry-over decision keeps the
+            # session in the hot set.
+            self._sessions.move_to_end(self._key(provider, session_id))
+            return len(entry) > 0
+
+    def get_golden_definitions(
+        self, provider: str, session_id: str
+    ) -> list[tuple[str, bytes]] | None:
+        """Return the previously-recorded (name, bytes) pairs for the session.
+
+        Returns ``None`` when the session has never injected memory tools.
+        Callers replay the bytes verbatim into ``body["tools"]``.
+        """
+        if not provider:
+            raise ValueError("provider must be non-empty")
+        if not session_id:
+            raise ValueError("session_id must be non-empty")
+        with self._lock:
+            entry = self._sessions.get(self._key(provider, session_id))
+            if entry is None:
+                return None
+            self._sessions.move_to_end(self._key(provider, session_id))
+            # Snapshot — never expose internal storage directly.
+            return [(name, golden_bytes) for name, golden_bytes in entry.items()]
+
+    def record_injection(
+        self,
+        provider: str,
+        session_id: str,
+        tool_name: str,
+        tool_definition_bytes: bytes,
+    ) -> None:
+        """Record the golden bytes for a single memory tool in this session.
+
+        First-write wins: re-recording the same ``tool_name`` for an
+        existing session is a no-op (prevents drift if the canonical
+        serialization output changed between deploys mid-session). For
+        a *new* session, record fresh. LRU bound applies on every write.
+        """
+        if not provider:
+            raise ValueError("provider must be non-empty")
+        if not session_id:
+            raise ValueError("session_id must be non-empty")
+        if not tool_name:
+            raise ValueError("tool_name must be non-empty")
+        if not tool_definition_bytes:
+            raise ValueError("tool_definition_bytes must be non-empty")
+
+        key = self._key(provider, session_id)
+
+        with self._lock:
+            entry = self._sessions.get(key)
+            if entry is None:
+                entry = OrderedDict()
+                self._sessions[key] = entry
+
+            # First-write wins: only record if not already pinned.
+            if tool_name not in entry:
+                entry[tool_name] = tool_definition_bytes
+
+            # LRU touch + bound enforcement.
+            self._sessions.move_to_end(key)
+            while len(self._sessions) > self._max_sessions:
+                self._sessions.popitem(last=False)
+
+    def reset(self) -> None:
+        """Clear all session state (test helper)."""
+        with self._lock:
+            self._sessions.clear()
+
+
+# Process-wide singleton. Lazily replaced by tests via
+# `_reset_session_tool_tracker_for_test`.
+_session_tool_tracker_lock = threading.Lock()
+_session_tool_tracker: SessionToolTracker | None = None
+
+
+def get_session_tool_tracker() -> SessionToolTracker:
+    """Return the process-wide `SessionToolTracker` singleton.
+
+    Lazily constructed so the env-var bound
+    (`HEADROOM_TOOL_TRACKER_MAX_SESSIONS`) is honored at first use.
+    Tests use ``_reset_session_tool_tracker_for_test``.
+    """
+    global _session_tool_tracker
+    with _session_tool_tracker_lock:
+        if _session_tool_tracker is None:
+            _session_tool_tracker = SessionToolTracker()
+        return _session_tool_tracker
+
+
+def _reset_session_tool_tracker_for_test() -> None:
+    """Clear the process-wide tracker (test-only)."""
+    global _session_tool_tracker
+    with _session_tool_tracker_lock:
+        _session_tool_tracker = None
+
+
+def log_tool_injection_decision(
+    *,
+    provider: str,
+    session_id: str | None,
+    decision: Literal[
+        "inject_first_time",
+        "inject_sticky_replay",
+        "skip",
+        "skip_disabled_via_env",
+    ],
+    tool_definition_bytes_count: int,
+    request_id: str | None,
+) -> None:
+    """Structured log for every cache-affecting tool-injection decision.
+
+    Per realignment build constraint #8 we log every cache-affecting
+    decision. ``tool_definition_bytes_count`` is the per-tool byte count
+    summed across all memory tools injected this turn. We do NOT log the
+    tool definition contents (might contain user-specific schemas) per
+    constraint #11.
+    """
+    logger.info(
+        "event=tool_injection_decision provider=%s session_id=%s "
+        "decision=%s tool_definition_bytes_count=%d request_id=%s",
+        provider,
+        session_id or "",
+        decision,
+        tool_definition_bytes_count,
+        request_id or "",
+    )
+
+
+def _extract_tool_name(tool_definition: dict[str, Any]) -> str | None:
+    """Extract a stable tool name from a memory tool definition.
+
+    Handles three formats:
+      * Anthropic custom: ``{"name": "memory_save", ...}``
+      * Anthropic native: ``{"type": "memory_20250818", "name": "memory"}``
+      * OpenAI function: ``{"type": "function", "function": {"name": "memory_save", ...}}``
+    """
+    name = tool_definition.get("name")
+    if isinstance(name, str) and name:
+        return name
+    fn = tool_definition.get("function")
+    if isinstance(fn, dict):
+        fn_name = fn.get("name")
+        if isinstance(fn_name, str) and fn_name:
+            return fn_name
+    # Native memory tool with no explicit name uses ``type`` as its identifier.
+    type_val = tool_definition.get("type")
+    if isinstance(type_val, str) and type_val:
+        return type_val
+    return None
+
+
+def apply_session_sticky_memory_tools(
+    *,
+    provider: Literal["anthropic", "openai"],
+    session_id: str | None,
+    request_id: str | None,
+    existing_tools: list[dict[str, Any]] | None,
+    memory_tools_to_inject: list[dict[str, Any]],
+    inject_this_turn: bool,
+) -> tuple[list[dict[str, Any]], bool]:
+    """Apply sticky-on memory tool injection per `SessionToolTracker`.
+
+    The single coordination point for all memory-tool injection sites
+    (Anthropic custom tools, Anthropic native tool, OpenAI function tools).
+
+    Logic (guide §6.3 #2):
+
+      * If ``HEADROOM_TOOL_INJECTION_STICKY=disabled``: bypass tracker,
+        inject only when ``inject_this_turn`` is True. Diagnostic mode.
+
+      * If session previously injected and tracker has golden bytes:
+        ALWAYS inject the golden bytes verbatim (sticky-on). Memory-this-
+        turn flag is irrelevant — once injected, always injected.
+
+      * If session has NOT previously injected:
+          - ``inject_this_turn=True``: serialize ``memory_tools_to_inject``,
+            record golden bytes, append to tools list.
+          - ``inject_this_turn=False``: skip; no future replay obligation.
+
+    Memory tools whose names already appear in ``existing_tools`` are
+    NOT re-appended (the client owns the canonical definition then).
+
+    ``session_id`` may be ``None`` (e.g. WS path with no per-turn
+    session); in that case the tracker is bypassed and the caller's
+    ``inject_this_turn`` flag drives the decision verbatim. We log the
+    bypass once so operators can see it.
+
+    Returns ``(updated_tools, was_injected)``. The returned list is a
+    fresh list (caller-safe). ``was_injected`` is True iff at least one
+    memory tool was added to the list.
+    """
+    if provider not in ("anthropic", "openai"):
+        raise ValueError(f"unsupported provider: {provider!r}")
+
+    tools_out: list[dict[str, Any]] = list(existing_tools) if existing_tools else []
+    existing_names: set[str] = set()
+    for t in tools_out:
+        n = _extract_tool_name(t)
+        if n:
+            existing_names.add(n)
+
+    # Diagnostic / rollback path.
+    if get_tool_injection_sticky_mode() == "disabled":
+        if not inject_this_turn:
+            log_tool_injection_decision(
+                provider=provider,
+                session_id=session_id,
+                decision="skip_disabled_via_env",
+                tool_definition_bytes_count=0,
+                request_id=request_id,
+            )
+            return tools_out, False
+        # Disabled mode + inject_this_turn=True: append the definitions
+        # verbatim without recording golden bytes (per-turn decision
+        # passes through as the broken behavior — explicit operator
+        # opt-in only). Skip names already in the list.
+        added_bytes = 0
+        for tool_def in memory_tools_to_inject:
+            tn = _extract_tool_name(tool_def)
+            if tn is None or tn in existing_names:
+                continue
+            tools_out.append(tool_def)
+            existing_names.add(tn)
+            added_bytes += len(serialize_tool_definition_canonical(tool_def))
+        log_tool_injection_decision(
+            provider=provider,
+            session_id=session_id,
+            decision="skip_disabled_via_env",
+            tool_definition_bytes_count=added_bytes,
+            request_id=request_id,
+        )
+        return tools_out, added_bytes > 0
+
+    # Sticky path requires a session_id. None means we cannot track —
+    # fall back to the caller's per-turn decision (loud, single log line)
+    # so WS handlers / pre-session paths remain functional.
+    if not session_id:
+        if not inject_this_turn:
+            log_tool_injection_decision(
+                provider=provider,
+                session_id=None,
+                decision="skip",
+                tool_definition_bytes_count=0,
+                request_id=request_id,
+            )
+            return tools_out, False
+        added_bytes = 0
+        for tool_def in memory_tools_to_inject:
+            tn = _extract_tool_name(tool_def)
+            if tn is None or tn in existing_names:
+                continue
+            tools_out.append(tool_def)
+            existing_names.add(tn)
+            added_bytes += len(serialize_tool_definition_canonical(tool_def))
+        log_tool_injection_decision(
+            provider=provider,
+            session_id=None,
+            decision="inject_first_time",
+            tool_definition_bytes_count=added_bytes,
+            request_id=request_id,
+        )
+        return tools_out, added_bytes > 0
+
+    tracker = get_session_tool_tracker()
+    previously_injected = tracker.should_inject(provider, session_id)
+
+    if previously_injected:
+        # Sticky replay: always inject the golden bytes. inject_this_turn
+        # flag is intentionally ignored (memory may be disabled this turn
+        # but the cache prefix demands the same tool list as before).
+        golden = tracker.get_golden_definitions(provider, session_id) or []
+        replay_bytes = 0
+        for tool_name, golden_bytes in golden:
+            if tool_name in existing_names:
+                # Client also has a tool by this name — don't double up.
+                # Their bytes win (the client's choice, not ours to gate).
+                continue
+            try:
+                tool_def = json.loads(golden_bytes.decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                # Should never happen — golden bytes were produced by us.
+                # Loud failure per build constraint #4.
+                raise RuntimeError(
+                    f"corrupt golden tool bytes for session {session_id} tool {tool_name}: {exc}"
+                ) from exc
+            tools_out.append(tool_def)
+            existing_names.add(tool_name)
+            replay_bytes += len(golden_bytes)
+        log_tool_injection_decision(
+            provider=provider,
+            session_id=session_id,
+            decision="inject_sticky_replay",
+            tool_definition_bytes_count=replay_bytes,
+            request_id=request_id,
+        )
+        return tools_out, replay_bytes > 0
+
+    # Fresh session.
+    if not inject_this_turn:
+        log_tool_injection_decision(
+            provider=provider,
+            session_id=session_id,
+            decision="skip",
+            tool_definition_bytes_count=0,
+            request_id=request_id,
+        )
+        return tools_out, False
+
+    # First-time inject: serialize, record, append.
+    added_bytes = 0
+    for tool_def in memory_tools_to_inject:
+        tn = _extract_tool_name(tool_def)
+        if tn is None or tn in existing_names:
+            continue
+        golden_bytes = serialize_tool_definition_canonical(tool_def)
+        tracker.record_injection(
+            provider=provider,
+            session_id=session_id,
+            tool_name=tn,
+            tool_definition_bytes=golden_bytes,
+        )
+        tools_out.append(tool_def)
+        existing_names.add(tn)
+        added_bytes += len(golden_bytes)
+    log_tool_injection_decision(
+        provider=provider,
+        session_id=session_id,
+        decision="inject_first_time",
+        tool_definition_bytes_count=added_bytes,
+        request_id=request_id,
+    )
+    return tools_out, added_bytes > 0
+
+
 async def _read_request_body_bytes(request: Request) -> bytes:
     """Read and (if needed) decompress the request body, returning raw UTF-8 bytes.
 

@@ -347,6 +347,51 @@ class MemoryHandler:
             self._memory_tools = get_memory_tools_optimized()
         return self._memory_tools
 
+    def compute_memory_tool_definitions(
+        self,
+        provider: str = "anthropic",
+    ) -> list[dict[str, Any]]:
+        """Return the memory tool definitions for ``provider`` (pure, no I/O).
+
+        Replaces the building half of ``inject_tools`` so the proxy
+        injection path can route through ``SessionToolTracker`` (PR-A7).
+        Honors ``self.config.use_native_tool`` for Anthropic so the
+        native ``memory_20250818`` tool flows through the same sticky
+        codepath as the custom ``memory_save`` / ``memory_search`` set.
+
+        The returned list is a fresh list of dicts. Order is stable
+        (matches ``_get_memory_tools()`` order) so the canonical bytes
+        are deterministic across calls.
+        """
+        if not self.config.inject_tools:
+            return []
+
+        if self.config.use_native_tool and provider == "anthropic":
+            return [
+                {
+                    "type": NATIVE_MEMORY_TOOL_TYPE,
+                    "name": NATIVE_MEMORY_TOOL_NAME,
+                }
+            ]
+
+        out: list[dict[str, Any]] = []
+        for memory_tool in self._get_memory_tools():
+            tool_name = memory_tool["function"]["name"]
+            if provider == "anthropic":
+                out.append(
+                    {
+                        "name": tool_name,
+                        "description": memory_tool["function"]["description"],
+                        "input_schema": memory_tool["function"]["parameters"],
+                    }
+                )
+            else:
+                # OpenAI format — return a fresh shallow copy so callers
+                # can mutate without surprise. dict() is sufficient: the
+                # nested schema is treated as immutable downstream.
+                out.append(dict(memory_tool))
+        return out
+
     def inject_tools(
         self,
         tools: list[dict[str, Any]] | None,
@@ -360,6 +405,12 @@ class MemoryHandler:
 
         Returns:
             Tuple of (updated_tools, was_injected).
+
+        NOTE (PR-A7): The proxy now wires injection through
+        ``apply_session_sticky_memory_tools`` so tool list bytes stay
+        cache-stable across turns. This method remains as the
+        non-session-aware fallback for tests / callers that don't have
+        a session_id (e.g. diagnostic shadow runs).
         """
         if not self.config.inject_tools:
             return tools or [], False
