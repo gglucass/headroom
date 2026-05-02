@@ -11,11 +11,12 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import os
 import random
 import threading
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from headroom import paths as _paths
 
@@ -23,6 +24,132 @@ if TYPE_CHECKING:
     from fastapi import Request
 
 logger = logging.getLogger("headroom.proxy")
+
+# Memory injection mode (P0-1 fix in PR-A2).
+#
+# Values:
+#   - "live_zone_tail" (default): Memory context appends to the first text block
+#     of the latest non-frozen user message. Cache hot zone (system + frozen
+#     prefix) is never mutated.
+#   - "disabled": Memory context lookup is skipped entirely; the request
+#     forwards untouched.
+#
+# Configurable via HEADROOM_MEMORY_INJECTION_MODE env var. There is no
+# "system_prompt" option — that path is permanently retired by I2 (cache hot
+# zone never modified). See REALIGNMENT/02-architecture.md §2.2.
+_MEMORY_INJECTION_MODE_ENV = "HEADROOM_MEMORY_INJECTION_MODE"
+_MEMORY_INJECTION_MODE_DEFAULT: Literal["live_zone_tail", "disabled"] = "live_zone_tail"
+MemoryInjectionMode = Literal["live_zone_tail", "disabled"]
+
+
+def get_memory_injection_mode() -> MemoryInjectionMode:
+    """Return the active memory-injection routing mode.
+
+    Read at request time so the env var can be flipped without restart for
+    smoke tests. Unknown values are rejected loudly (no silent fallback).
+    """
+    raw = os.environ.get(_MEMORY_INJECTION_MODE_ENV, "").strip().lower()
+    if not raw:
+        return _MEMORY_INJECTION_MODE_DEFAULT
+    if raw in ("live_zone_tail", "disabled"):
+        return cast(MemoryInjectionMode, raw)
+    raise ValueError(
+        f"Invalid {_MEMORY_INJECTION_MODE_ENV}={raw!r}; expected 'live_zone_tail' or 'disabled'"
+    )
+
+
+def hash_query_for_log(query: str) -> str:
+    """Stable short hash of a memory-context query, safe to log.
+
+    Uses BLAKE2b truncated to 16 hex chars. Never logs the raw query content.
+    """
+    h = hashlib.blake2b(query.encode("utf-8", errors="replace"), digest_size=8)
+    return h.hexdigest()
+
+
+def log_memory_injection(
+    *,
+    request_id: str,
+    session_id: str | None,
+    decision: str,
+    bytes_injected: int,
+    query: str | None = None,
+) -> None:
+    """Emit a structured log line for every memory-context routing decision.
+
+    Per realignment build constraints: log every cache-affecting decision.
+    Never log raw query content or Authorization header — only a stable
+    hash of the query.
+    """
+    query_hash = hash_query_for_log(query) if query else ""
+    logger.info(
+        "event=memory_injection request_id=%s session_id=%s decision=%s "
+        "bytes_injected=%d query_hash=%s",
+        request_id,
+        session_id or "",
+        decision,
+        bytes_injected,
+        query_hash,
+    )
+
+
+def append_text_to_latest_user_input_item(
+    body_input: list[dict[str, Any]],
+    context_text: str,
+) -> tuple[list[dict[str, Any]], int]:
+    """Append context text to the first text block of the latest user input item.
+
+    Mirrors ``_append_context_to_latest_non_frozen_user_turn`` but for the
+    OpenAI Responses API ``body["input"]`` shape, which uses a flat item list
+    where each user item's content is a list like
+    ``[{"type": "input_text", "text": "..."}]``.
+
+    Returns a tuple ``(new_input, bytes_appended)`` where ``bytes_appended``
+    is 0 when the item list was unchanged (no eligible user item).
+    """
+    if not body_input or not context_text:
+        return body_input, 0
+
+    new_input = list(body_input)
+
+    for idx in range(len(new_input) - 1, -1, -1):
+        item = new_input[idx]
+        if not isinstance(item, dict):
+            continue
+        if item.get("role") != "user":
+            continue
+
+        content = item.get("content")
+        if isinstance(content, str):
+            updated_item = {**item, "content": content + "\n\n" + context_text}
+            new_input[idx] = updated_item
+            return new_input, len(context_text)
+
+        if isinstance(content, list) and content:
+            new_content: list[dict[str, Any]] = []
+            appended = False
+            for part in content:
+                if (
+                    not appended
+                    and isinstance(part, dict)
+                    and part.get("type") in ("input_text", "text")
+                ):
+                    existing_text = part.get("text", "")
+                    new_part = {**part, "text": existing_text + "\n\n" + context_text}
+                    new_content.append(new_part)
+                    appended = True
+                else:
+                    new_content.append(part)
+            if appended:
+                updated_item = {**item, "content": new_content}
+                new_input[idx] = updated_item
+                return new_input, len(context_text)
+
+        # User item but no eligible text block — leave untouched and stop.
+        return body_input, 0
+
+    return body_input, 0
+
 
 RTK_STATS_CACHE_TTL_SECONDS = 5.0
 _rtk_stats_cache_lock = threading.Lock()

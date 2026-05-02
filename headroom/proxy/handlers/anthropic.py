@@ -102,9 +102,16 @@ class AnthropicHandlerMixin:
         *,
         frozen_message_count: int,
     ) -> list[dict[str, Any]]:
-        """Append context only to the latest non-frozen user text turn.
+        """Append context to the first text block of the latest non-frozen user turn.
 
-        Returns input unchanged if no eligible user text turn exists.
+        This is the canonical memory-injection path (P0-1 fix in PR-A2). The
+        cache hot zone (system + frozen prefix) is never touched. Only the
+        first text block of the latest user message is mutated, which is by
+        definition the live zone.
+
+        Returns the input list unchanged if no eligible user text block
+        exists (e.g., the last message is an assistant turn or a tool
+        result, or the user message has no text block).
         """
         if not messages or not context_text:
             return messages
@@ -115,11 +122,31 @@ class AnthropicHandlerMixin:
         msg = messages[i]
         if msg.get("role") != "user":
             return messages
+
         content = msg.get("content", "")
         if isinstance(content, str):
             updated = list(messages)
             updated[i] = {**msg, "content": content + "\n\n" + context_text}
             return updated
+
+        if isinstance(content, list) and content:
+            # Append to the first text block of the latest user message.
+            # Anthropic content blocks are dicts with a "type" field; the
+            # text block has type "text" and a "text" field.
+            new_content: list[dict[str, Any]] = []
+            appended = False
+            for block in content:
+                if not appended and isinstance(block, dict) and block.get("type") == "text":
+                    existing = block.get("text", "")
+                    new_content.append({**block, "text": existing + "\n\n" + context_text})
+                    appended = True
+                else:
+                    new_content.append(block)
+            if appended:
+                updated = list(messages)
+                updated[i] = {**msg, "content": new_content}
+                return updated
+
         return messages
 
     @staticmethod
@@ -1114,12 +1141,36 @@ class AnthropicHandlerMixin:
                         )
                     try:
                         if memory_context:
-                            if is_cache_mode(self.config.mode):
-                                logger.info(
-                                    f"[{request_id}] Memory: skipping context append in cache mode "
-                                    "to preserve next-turn prefix stability"
+                            from headroom.proxy.helpers import (
+                                get_memory_injection_mode,
+                                log_memory_injection,
+                            )
+
+                            injection_mode = get_memory_injection_mode()
+                            user_query = extract_user_query(optimized_messages) or ""
+                            if injection_mode == "disabled":
+                                log_memory_injection(
+                                    request_id=request_id,
+                                    session_id=session_id,
+                                    decision="skipped_disabled",
+                                    bytes_injected=0,
+                                    query=user_query,
                                 )
-                            elif frozen_message_count > 0:
+                            elif is_cache_mode(self.config.mode):
+                                # Cache mode: skip injection entirely so the next-turn
+                                # prefix bytes remain byte-equal to this turn's bytes.
+                                log_memory_injection(
+                                    request_id=request_id,
+                                    session_id=session_id,
+                                    decision="skipped_cache_mode",
+                                    bytes_injected=0,
+                                    query=user_query,
+                                )
+                            else:
+                                # P0-1 fix: route exclusively to the live zone tail
+                                # (latest non-frozen user turn). System prompt + frozen
+                                # prefix are never mutated — invariant I2.
+                                before = optimized_messages
                                 optimized_messages = (
                                     self._append_context_to_latest_non_frozen_user_turn(
                                         optimized_messages,
@@ -1127,19 +1178,23 @@ class AnthropicHandlerMixin:
                                         frozen_message_count=frozen_message_count,
                                     )
                                 )
-                                memory_context_injected = True
-                                logger.info(
-                                    f"[{request_id}] Memory: Appended {len(memory_context)} chars "
-                                    f"to latest non-frozen user turn (prefix cache-safe)"
-                                )
-                            else:
-                                optimized_messages = self._inject_system_context(
-                                    optimized_messages, memory_context, body=body
-                                )
-                                memory_context_injected = True
-                                logger.info(
-                                    f"[{request_id}] Memory: Injected {len(memory_context)} chars of context"
-                                )
+                                if optimized_messages is not before:
+                                    memory_context_injected = True
+                                    log_memory_injection(
+                                        request_id=request_id,
+                                        session_id=session_id,
+                                        decision="injected_live_zone_tail",
+                                        bytes_injected=len(memory_context),
+                                        query=user_query,
+                                    )
+                                else:
+                                    log_memory_injection(
+                                        request_id=request_id,
+                                        session_id=session_id,
+                                        decision="no_eligible_user_turn",
+                                        bytes_injected=0,
+                                        query=user_query,
+                                    )
                     except Exception as e:
                         logger.warning(f"[{request_id}] Memory: Context injection failed: {e}")
 

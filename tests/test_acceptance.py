@@ -25,87 +25,49 @@ def get_tokenizer(model: str = "gpt-4o") -> Tokenizer:
 
 
 class TestDateTrap:
-    """Test that system prompt dates are relocated and prefix hash is stable."""
+    """CacheAligner is detector-only after PR-A2 (P2-23 fix).
 
-    def test_date_extraction_from_system_prompt(self):
-        """Dates should be extracted from system prompt."""
-        messages_day1 = [
-            {"role": "system", "content": "You are helpful. Current Date: 2024-01-15"},
+    The system prompt is NEVER mutated. Volatile content (dates, UUIDs,
+    JWTs, hex hashes) is only DETECTED and surfaced via warnings. The
+    spec's prior "date trap" remediation moved to live-zone routing
+    (PR-A2 P0-1) and is exercised by tests/test_proxy_system_prompt_immutable.py.
+    """
+
+    def test_system_prompt_bytes_unchanged_when_dynamic_content_present(self):
+        """The detector must not rewrite the system prompt."""
+        original = "You are helpful. Current Date: 2024-01-15"
+        messages = [
+            {"role": "system", "content": original},
             {"role": "user", "content": "Hello"},
         ]
 
         aligner = CacheAligner()
         tokenizer = get_tokenizer()
+        result = aligner.apply(messages, tokenizer)
 
-        result = aligner.apply(messages_day1, tokenizer)
+        assert result.messages[0]["content"] == original
+        assert result.transforms_applied == []
 
-        # Date should be moved out of main system content
-        system_content = result.messages[0]["content"]
-        # The date should be after the dynamic separator (---), not in the static prefix
-        # Split on the separator marker "---" to get static content
-        static_content = system_content.split("---")[0]
-        assert "Current Date: 2024-01-15" not in static_content
+    def test_warning_surfaced_for_iso_date_in_system_prompt(self):
+        """ISO 8601 dates should be surfaced as warnings, not extracted."""
+        from headroom.config import CacheAlignerConfig
 
-    def test_stable_prefix_hash_across_days(self):
-        """Prefix hash should be stable despite different dates."""
-        messages_day1 = [
-            {"role": "system", "content": "You are a helpful assistant. Current Date: 2024-01-15"},
-            {"role": "user", "content": "Hello"},
-        ]
-        messages_day2 = [
-            {"role": "system", "content": "You are a helpful assistant. Current Date: 2024-01-16"},
+        messages = [
+            {
+                "role": "system",
+                "content": "You are helpful. Time: 2024-01-15T10:30:00",
+            },
             {"role": "user", "content": "Hello"},
         ]
 
-        aligner = CacheAligner()
+        aligner = CacheAligner(CacheAlignerConfig(enabled=True))
         tokenizer = get_tokenizer()
+        result = aligner.apply(messages, tokenizer)
 
-        result1 = aligner.apply(messages_day1, tokenizer)
-        result2 = aligner.apply(messages_day2, tokenizer)
+        assert any("iso8601" in w.lower() for w in result.warnings)
 
-        # Extract hashes from markers
-        hash1 = None
-        hash2 = None
-        for marker in result1.markers_inserted:
-            if marker.startswith("stable_prefix_hash:"):
-                hash1 = marker.split(":", 1)[1]
-        for marker in result2.markers_inserted:
-            if marker.startswith("stable_prefix_hash:"):
-                hash2 = marker.split(":", 1)[1]
-
-        # Stable hash despite different dates
-        assert hash1 is not None
-        assert hash2 is not None
-        assert hash1 == hash2
-
-    def test_various_date_formats(self):
-        """Various date formats should be detected."""
-        test_cases = [
-            "Current Date: 2024-01-15",
-            "Today is Monday, January 15",
-            "Today's date: 2024-01-15",
-            "2024-01-15T10:30:00",
-        ]
-
-        aligner = CacheAligner()
-        tokenizer = get_tokenizer()
-
-        for date_str in test_cases:
-            messages = [
-                {"role": "system", "content": f"You are helpful. {date_str}. Be concise."},
-                {"role": "user", "content": "Hello"},
-            ]
-
-            result = aligner.apply(messages, tokenizer)
-
-            # Transform should be applied (date detected)
-            # Either transforms_applied has cache_align or the date is moved
-            system_content = result.messages[0]["content"]
-            # Date should be separated from main instructions
-            assert "[Context:" in system_content or "cache_align" in result.transforms_applied
-
-    def test_cache_metrics_returned(self):
-        """CachePrefixMetrics should be returned with all fields."""
+    def test_cache_metrics_populated(self):
+        """CachePrefixMetrics is populated even though no rewrite happens."""
         messages = [
             {"role": "system", "content": "You are helpful. Current Date: 2024-01-15"},
             {"role": "user", "content": "Hello"},
@@ -113,53 +75,50 @@ class TestDateTrap:
 
         aligner = CacheAligner()
         tokenizer = get_tokenizer()
-
         result = aligner.apply(messages, tokenizer)
 
-        # Cache metrics should be populated
         assert result.cache_metrics is not None
         assert result.cache_metrics.stable_prefix_bytes > 0
         assert result.cache_metrics.stable_prefix_tokens_est > 0
         assert len(result.cache_metrics.stable_prefix_hash) == 16
-        # First request: no previous hash, prefix_changed should be False
         assert result.cache_metrics.prefix_changed is False
         assert result.cache_metrics.previous_hash is None
 
-    def test_cache_metrics_tracks_changes(self):
-        """Cache metrics should track prefix changes across requests."""
+    def test_cache_metrics_tracks_changes_across_requests(self):
+        """Hash flips when bytes change. Hash is over the actual bytes now."""
         aligner = CacheAligner()
         tokenizer = get_tokenizer()
 
-        # First request with one system prompt
         messages1 = [
             {"role": "system", "content": "You are helpful. Current Date: 2024-01-15"},
             {"role": "user", "content": "Hello"},
         ]
         result1 = aligner.apply(messages1, tokenizer)
 
-        # Second request with same static content (different date)
+        # Same bytes → same hash, prefix_changed False.
         messages2 = [
-            {"role": "system", "content": "You are helpful. Current Date: 2024-01-16"},
+            {"role": "system", "content": "You are helpful. Current Date: 2024-01-15"},
             {"role": "user", "content": "Hello"},
         ]
         result2 = aligner.apply(messages2, tokenizer)
-
-        # Same static prefix → prefix_changed should be False
-        assert result2.cache_metrics is not None
         assert result2.cache_metrics.prefix_changed is False
-        assert result2.cache_metrics.previous_hash == result1.cache_metrics.stable_prefix_hash
+        assert result2.cache_metrics.stable_prefix_hash == (
+            result1.cache_metrics.stable_prefix_hash
+        )
 
-        # Third request with DIFFERENT static content
+        # Different bytes → hash flips. The detector NEVER strips dynamic
+        # content, so any byte difference is reflected in the hash. This
+        # is the correct behavior — the customer must move dynamic content
+        # to the live zone (live-zone tail per PR-A2) to get cache hits.
         messages3 = [
-            {"role": "system", "content": "You are VERY helpful. Current Date: 2024-01-17"},
+            {"role": "system", "content": "You are VERY helpful. Current Date: 2024-01-15"},
             {"role": "user", "content": "Hello"},
         ]
         result3 = aligner.apply(messages3, tokenizer)
-
-        # Different static prefix → prefix_changed should be True
-        assert result3.cache_metrics is not None
         assert result3.cache_metrics.prefix_changed is True
-        assert result3.cache_metrics.stable_prefix_hash != result2.cache_metrics.stable_prefix_hash
+        assert result3.cache_metrics.stable_prefix_hash != (
+            result2.cache_metrics.stable_prefix_hash
+        )
 
 
 class TestToolOrphan:

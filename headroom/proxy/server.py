@@ -1023,53 +1023,6 @@ class HeadroomProxy(
                 tags[tag_name] = value
         return tags
 
-    def _inject_system_context(
-        self,
-        messages: list[dict[str, Any]],
-        context: str,
-        body: dict[str, Any] | None = None,
-    ) -> list[dict[str, Any]]:
-        """Inject context into the system message/parameter.
-
-        For Anthropic API: Uses top-level 'system' parameter (not messages array).
-        For OpenAI API: Uses system role in messages array.
-
-        Args:
-            messages: The messages list.
-            context: Context to inject.
-            body: Optional request body to update system parameter (for Anthropic).
-
-        Returns:
-            Updated messages list.
-        """
-        messages = list(messages)  # Copy to avoid mutation
-
-        # For Anthropic API: use top-level 'system' parameter
-        if body is not None:
-            existing_system = body.get("system", "")
-            if isinstance(existing_system, str):
-                body["system"] = (existing_system + "\n\n" + context).strip()
-            elif isinstance(existing_system, list):
-                # system is a list of content blocks (e.g., with cache_control).
-                # Append memory context as a new text block — never overwrite.
-                body["system"] = existing_system + [{"type": "text", "text": context}]
-            else:
-                # No existing system prompt — set as string
-                body["system"] = context
-            return messages
-
-        # For OpenAI API: use system role in messages
-        for i, msg in enumerate(messages):
-            if msg.get("role") == "system":
-                content = msg.get("content", "")
-                if isinstance(content, str):
-                    messages[i] = {**msg, "content": content + "\n\n" + context}
-                return messages
-
-        # No system message found - prepend one
-        messages.insert(0, {"role": "system", "content": context})
-        return messages
-
     async def _retry_request(
         self,
         method: str,

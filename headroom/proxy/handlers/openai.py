@@ -1191,7 +1191,10 @@ class OpenAIHandlerMixin:
         # Memory: inject context and tools for Responses API requests
         if self.memory_handler and memory_user_id:
             try:
-                # Inject memory context into instructions (Responses API system prompt)
+                # Memory context now routes exclusively to the live-zone tail
+                # (latest non-frozen user item). Instructions are part of the
+                # cache hot zone and must never be mutated — invariant I2.
+                # See REALIGNMENT/03-phase-A-lockdown.md PR-A2.
                 if self.memory_handler.config.inject_context:
                     try:
                         memory_context = await asyncio.wait_for(
@@ -1207,15 +1210,73 @@ class OpenAIHandlerMixin:
                             f"{RESPONSES_CONTEXT_SEARCH_TIMEOUT_SECONDS:.1f}s; continuing without it"
                         )
                     if memory_context:
-                        existing_instructions = body.get("instructions") or ""
-                        if existing_instructions:
-                            body["instructions"] = f"{existing_instructions}\n\n{memory_context}"
-                        else:
-                            body["instructions"] = memory_context
-                        logger.info(
-                            f"[{request_id}] Memory: Injected {len(memory_context)} chars "
-                            f"of context into instructions for user {memory_user_id}"
+                        from headroom.proxy.helpers import (
+                            append_text_to_latest_user_input_item,
+                            get_memory_injection_mode,
+                            log_memory_injection,
                         )
+
+                        injection_mode = get_memory_injection_mode()
+                        user_query = extract_user_query(optimized_messages) or ""
+                        if injection_mode == "disabled":
+                            log_memory_injection(
+                                request_id=request_id,
+                                session_id=None,
+                                decision="skipped_disabled",
+                                bytes_injected=0,
+                                query=user_query,
+                            )
+                        else:
+                            # Route into body["input"] (the canonical Responses API
+                            # field) targeting the latest user item's first text
+                            # block. body["instructions"] (cache hot zone) is left
+                            # untouched.
+                            current_input = body.get("input")
+                            if isinstance(current_input, str):
+                                # String input: append to it. The string IS the
+                                # latest user content; appending here is the
+                                # equivalent of the live-zone tail.
+                                body["input"] = (
+                                    current_input + "\n\n" + memory_context
+                                    if current_input
+                                    else memory_context
+                                )
+                                log_memory_injection(
+                                    request_id=request_id,
+                                    session_id=None,
+                                    decision="injected_live_zone_tail_string",
+                                    bytes_injected=len(memory_context),
+                                    query=user_query,
+                                )
+                            elif isinstance(current_input, list):
+                                new_input, bytes_appended = append_text_to_latest_user_input_item(
+                                    current_input, memory_context
+                                )
+                                if bytes_appended > 0:
+                                    body["input"] = new_input
+                                    log_memory_injection(
+                                        request_id=request_id,
+                                        session_id=None,
+                                        decision="injected_live_zone_tail",
+                                        bytes_injected=bytes_appended,
+                                        query=user_query,
+                                    )
+                                else:
+                                    log_memory_injection(
+                                        request_id=request_id,
+                                        session_id=None,
+                                        decision="no_eligible_user_item",
+                                        bytes_injected=0,
+                                        query=user_query,
+                                    )
+                            else:
+                                log_memory_injection(
+                                    request_id=request_id,
+                                    session_id=None,
+                                    decision="no_input_field",
+                                    bytes_injected=0,
+                                    query=user_query,
+                                )
 
                 # Inject memory tools (Responses API format)
                 if self.memory_handler.config.inject_tools:
