@@ -205,6 +205,12 @@ class ProxyConfig:
     memory_inject_context: bool = True
     memory_top_k: int = 10
     memory_min_similarity: float = 0.3
+    # PR-B6: Memory injection mode. ``"auto_tail"`` (default) auto-appends
+    # retrieved memory to the latest user message tail (live zone).
+    # ``"tool"`` disables auto-injection — the model must call
+    # ``memory_search`` to retrieve. See REALIGNMENT/04-phase-B-live-zone.md
+    # PR-B6.
+    memory_mode: Literal["auto_tail", "tool"] = "auto_tail"
     # Qdrant connection (defaults resolve from HEADROOM_QDRANT_* env vars)
     memory_qdrant_url: str | None = field(default_factory=qdrant_env.qdrant_env_url)
     memory_qdrant_host: str = field(default_factory=qdrant_env.qdrant_env_host)

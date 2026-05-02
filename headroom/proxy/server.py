@@ -499,6 +499,19 @@ class HeadroomProxy(
                 _mem_db_path = str(_mem_dir / "memory.db")
                 logger.info(f"Memory: Project-scoped DB at {_mem_db_path}")
 
+            # PR-B6: translate the string-typed ``ProxyConfig.memory_mode``
+            # into the typed ``MemoryMode`` enum. Unknown values raise
+            # loudly per the no-silent-fallback policy.
+            from headroom.proxy.memory_handler import MemoryMode
+
+            try:
+                _memory_mode = MemoryMode(config.memory_mode)
+            except ValueError as exc:
+                raise ValueError(
+                    f"Invalid memory_mode={config.memory_mode!r}; "
+                    f"expected one of {[m.value for m in MemoryMode]}"
+                ) from exc
+
             memory_config = MemoryConfig(
                 enabled=True,
                 backend=config.memory_backend,
@@ -508,6 +521,7 @@ class HeadroomProxy(
                 inject_context=config.memory_inject_context,
                 top_k=config.memory_top_k,
                 min_similarity=config.memory_min_similarity,
+                mode=_memory_mode,
                 qdrant_url=config.memory_qdrant_url,
                 qdrant_host=config.memory_qdrant_host,
                 qdrant_port=config.memory_qdrant_port,
