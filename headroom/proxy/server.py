@@ -4,7 +4,7 @@ A full-featured LLM proxy with optimization, caching, rate limiting,
 and observability.
 
 Features:
-- Context optimization (SmartCrusher, CacheAligner, RollingWindow)
+- Context optimization (SmartCrusher, CacheAligner — live-zone-only after Phase B)
 - Semantic caching (save costs on repeated queries)
 - Rate limiting (token bucket)
 - Retry with exponential backoff
@@ -75,9 +75,7 @@ from headroom.ccr import (
 from headroom.config import (
     CacheAlignerConfig,
     CCRConfig,
-    IntelligentContextConfig,
     ReadLifecycleConfig,
-    RollingWindowConfig,
     SmartCrusherConfig,
 )
 from headroom.dashboard import get_dashboard_html
@@ -159,10 +157,7 @@ from headroom.transforms import (
     CodeCompressorConfig,
     ContentRouter,
     ContentRouterConfig,
-    IntelligentContextManager,
-    RollingWindow,
     SmartCrusher,
-    Transform,
     TransformPipeline,
     is_tree_sitter_available,
 )
@@ -255,34 +250,14 @@ class HeadroomProxy(
         )
         self.metrics = PrometheusMetrics(cost_tracker=self.cost_tracker)
 
-        # Initialize transforms based on routing mode
-        # Choose context manager: IntelligentContextManager (smart) or RollingWindow (legacy)
-        context_manager: Transform  # Can be either IntelligentContextManager or RollingWindow
-        if config.intelligent_context:
-            # Get TOIN instance for learned pattern integration
-            toin = get_toin() if config.intelligent_context_scoring else None
-            context_manager = IntelligentContextManager(
-                config=IntelligentContextConfig(
-                    enabled=True,
-                    keep_system=True,
-                    keep_last_turns=config.keep_last_turns,
-                    use_importance_scoring=config.intelligent_context_scoring,
-                    toin_integration=config.intelligent_context_scoring,
-                    compress_threshold=0.10 if config.intelligent_context_compress_first else 0.0,
-                ),
-                toin=toin,
-                observer=self.metrics,
-            )
-            self._context_manager_status = "intelligent"
-        else:
-            context_manager = RollingWindow(
-                RollingWindowConfig(
-                    enabled=True,
-                    keep_system=True,
-                    keep_last_turns=config.keep_last_turns,
-                )
-            )
-            self._context_manager_status = "rolling_window"
+        # Initialize transforms based on routing mode.
+        #
+        # Phase B PR-B1 retired the IntelligentContextManager / RollingWindow
+        # message-dropping branch. Live-zone-only compression (PR-B2..B7) does
+        # not drop messages — it operates on content blocks within messages —
+        # so the proxy no longer needs a "context manager" transform stage.
+        # Reported via metrics as `_context_manager_status = "passthrough"`.
+        self._context_manager_status = "passthrough"
 
         if config.smart_routing:
             # Smart routing: ContentRouter handles all content types intelligently
@@ -298,7 +273,6 @@ class HeadroomProxy(
             transforms = [
                 CacheAligner(CacheAlignerConfig(enabled=False)),
                 ContentRouter(router_config, observer=self.metrics),
-                context_manager,
             ]
             self._code_aware_status = "lazy" if config.code_aware_enabled else "disabled"
         else:
@@ -317,7 +291,6 @@ class HeadroomProxy(
                     ),
                     observer=self.metrics,
                 ),
-                context_manager,
             ]
             # Add CodeAware if enabled and available
             self._code_aware_status = self._setup_code_aware(config, transforms)
@@ -712,8 +685,10 @@ class HeadroomProxy(
                     preserve_signatures=True,
                     preserve_type_annotations=True,
                 )
-                # Insert before RollingWindow (which should be last)
-                transforms.insert(-1, CodeAwareCompressor(code_config))
+                # CodeAware runs after the content/structure transforms.
+                # Phase B PR-B1 retired the trailing context_manager so we
+                # append rather than insert(-1).
+                transforms.append(CodeAwareCompressor(code_config))
                 return "enabled"
             else:
                 logger.warning(

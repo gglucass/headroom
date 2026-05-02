@@ -67,8 +67,15 @@ def test_codex_phase_final_answer_preserved() -> None:
     assert rebuilt[0]["content"][0]["text"] == "Short."
 
 
-def test_unknown_item_type_logs_warning_byte_equal(caplog) -> None:
-    """Unknown item types preserve the item AND log a structured warning."""
+def test_unknown_item_type_logs_warning_byte_equal() -> None:
+    """Unknown item types preserve the item AND log a structured warning.
+
+    Capture is done by attaching a handler directly to the named logger
+    rather than relying on `caplog`. Other tests in the suite (proxy
+    file-logging setup) flip `headroom.*.propagate = False`, which breaks
+    pytest's root-attached caplog handler in unrelated test runs. A
+    direct handler is order-independent.
+    """
     items = [
         {
             "type": "apply_patch_v4a",
@@ -76,14 +83,29 @@ def test_unknown_item_type_logs_warning_byte_equal(caplog) -> None:
             "patch": "--- a\n+++ b\n",
         },
     ]
-    with caplog.at_level(logging.WARNING, logger="headroom.proxy.responses_converter"):
+    target = logging.getLogger("headroom.proxy.responses_converter")
+    captured: list[logging.LogRecord] = []
+
+    class _CaptureHandler(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            captured.append(record)
+
+    handler = _CaptureHandler(level=logging.WARNING)
+    prev_level = target.level
+    target.addHandler(handler)
+    target.setLevel(logging.WARNING)
+    try:
         messages, preserved = responses_items_to_messages(items, request_id="req-xyz")
+    finally:
+        target.removeHandler(handler)
+        target.setLevel(prev_level)
+
     # Item is preserved (byte-equal) on the rebuild side.
     assert preserved == [0]
     rebuilt = messages_to_responses_items(messages, items, preserved)
     assert rebuilt == items
     # A structured warning fired with the unknown type.
-    matched = [r for r in caplog.records if "unknown_responses_item_type" in r.getMessage()]
+    matched = [r for r in captured if "unknown_responses_item_type" in r.getMessage()]
     assert matched, "expected unknown_responses_item_type warning log line"
     msg = matched[0].getMessage()
     assert "apply_patch_v4a" in msg

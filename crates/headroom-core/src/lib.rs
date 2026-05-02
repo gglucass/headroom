@@ -2,9 +2,7 @@
 
 pub mod cache_control;
 pub mod ccr;
-pub mod context;
 pub mod relevance;
-pub mod scoring;
 pub mod signals;
 pub mod tokenizer;
 pub mod transforms;

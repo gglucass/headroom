@@ -23,6 +23,7 @@ pub mod diff_compressor;
 pub mod log_compressor;
 pub mod magika_detector;
 pub mod pipeline;
+pub mod safety;
 pub mod search_compressor;
 pub mod smart_crusher;
 pub mod tag_protector;
@@ -45,6 +46,7 @@ pub use pipeline::{
     JsonMinifier, JsonOffload, LogOffload, LogTemplate, OffloadOutput, OffloadTransform,
     PipelineConfig, PipelineResult, ReformatOutput, ReformatTransform, TransformError,
 };
+pub use safety::{tool_pair_indices, ToolPair};
 pub use search_compressor::{
     FileMatches, SearchCompressionResult, SearchCompressor, SearchCompressorConfig,
     SearchCompressorStats, SearchMatch,

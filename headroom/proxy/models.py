@@ -142,11 +142,6 @@ class ProxyConfig:
     # Smart content routing
     smart_routing: bool = True
 
-    # Intelligent context management
-    intelligent_context: bool = True
-    intelligent_context_scoring: bool = True
-    intelligent_context_compress_first: bool = True
-
     # Caching
     cache_enabled: bool = True
     cache_ttl_seconds: int = 3600
