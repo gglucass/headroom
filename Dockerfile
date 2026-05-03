@@ -101,22 +101,16 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # its lifespan smoke test on every restart — better to break the build
 # loudly here than ship a broken image.
 #
-# Diagnostic preamble (kept around so future build-time regressions are
-# self-documenting): list site-packages/headroom/, pip-show both the
-# wheel package and the source package, and grep their RECORDs for
-# _core.so ownership. Adds <100ms; logs are invaluable on failure.
-RUN echo "=== site-packages/headroom/ contents ===" && \
-    ls -la "$(python -c 'import site; print(site.getsitepackages()[0])')/headroom" 2>&1 || true && \
-    echo "=== pip show headroom-core-py ===" && \
-    python -m pip show -f headroom-core-py 2>&1 | head -40 || true && \
-    echo "=== pip show headroom-ai ===" && \
-    python -m pip show -f headroom-ai 2>&1 | head -40 || true && \
-    echo "=== sys.path ===" && \
-    python -c "import sys; [print(' ', p) for p in sys.path]" && \
-    echo "=== importing headroom ===" && \
-    python -c "import headroom; print('headroom.__file__ =', headroom.__file__); print('headroom.__path__ =', list(headroom.__path__))"
-
-RUN python -c "from headroom._core import hello; \
+# IMPORTANT: run from `/tmp`, not from `/build`. `WORKDIR /build` puts
+# `''` (cwd) at the front of `sys.path`, which makes `import headroom`
+# resolve to `/build/headroom/` (the source tree we just COPY'd in)
+# instead of `/usr/local/lib/python3.11/site-packages/headroom/` (where
+# the wheel installed `_core.so`). The source tree has no `_core.so`,
+# so the verify falsely fails. Production startup runs from a different
+# cwd (the proxy's working directory or `/`), so this is a build-time-
+# only quirk caused by `WORKDIR /build`. Anchoring the verify in `/tmp`
+# matches the production import order: site-packages wins.
+RUN cd /tmp && python -c "from headroom._core import hello; \
     marker = hello(); \
     assert marker == 'headroom-core', f'expected headroom-core, got {marker!r}'; \
     print(f'build-stage rust core verify OK: {marker}')"
