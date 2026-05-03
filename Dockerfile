@@ -18,12 +18,19 @@ ARG UV_VERSION
 # image actually carries `headroom._core`; previously the runtime image
 # shipped without the Rust extension and every compressed request fell
 # back to a Python-only path or no-op.
+#
+# `pkg-config` + `libssl-dev` are required because the workspace
+# transitively pulls `openssl-sys` (via reqwest/native-tls in some
+# dependency chain). Without them, `cargo` fails the maturin build with
+# "Could not find openssl via pkg-config" — observed in PR #350 CI.
 RUN apt-get update && \
   apt-get install -y --no-install-recommends \
     build-essential \
     g++ \
     curl \
     ca-certificates \
+    pkg-config \
+    libssl-dev \
   && rm -rf /var/lib/apt/lists/*
 
 RUN python -m pip install --no-cache-dir uv==${UV_VERSION}
