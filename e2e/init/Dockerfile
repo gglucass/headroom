@@ -38,7 +38,16 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PIP_NO_CACHE_DIR=1 \
     PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1
+    PYTHONDONTWRITEBYTECODE=1 \
+    # Single-wheel refactor side effect: `headroom` is now installed
+    # from a wheel into site-packages, so `__file__.parents[2]` no
+    # longer points at the repo root (it points at site-packages).
+    # `_marketplace_source()` falls back to `chopratejas/headroom`
+    # (the GitHub remote) instead of the local `/workspace` path the
+    # `seq_claude_local` e2e assertion expects. Pin the source via
+    # the existing override env var so the local `/workspace`
+    # marketplace.json (COPY'd below) is used.
+    HEADROOM_MARKETPLACE_SOURCE=/workspace
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
