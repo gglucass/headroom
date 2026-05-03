@@ -5,7 +5,15 @@ FROM mcr.microsoft.com/devcontainers/python:1-${VARIANT}
 # from the local pyproject.toml using maturin (declared in build-system).
 # Maturin needs rust + cargo + pkg-config + libssl-dev (transitive
 # openssl-sys via fastembed/hf-hub).
-RUN apt-get update && \
+#
+# The base image `mcr.microsoft.com/devcontainers/python:1-3.12-bookworm`
+# ships with `dl.yarnpkg.com` configured as an apt source whose GPG key
+# is expired. We don't need yarn for the maturin build, so drop that
+# source list before `apt-get update` to avoid `NO_PUBKEY` aborting the
+# whole step (apt-get returns exit 100 even though deb.debian.org's
+# main repo updates fine).
+RUN rm -f /etc/apt/sources.list.d/yarn.list && \
+    apt-get update && \
     apt-get install -y --no-install-recommends \
       pkg-config \
       libssl-dev && \
