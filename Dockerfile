@@ -31,6 +31,7 @@ RUN apt-get update && \
     ca-certificates \
     pkg-config \
     libssl-dev \
+    patchelf \
   && rm -rf /var/lib/apt/lists/*
 
 RUN python -m pip install --no-cache-dir uv==${UV_VERSION}
