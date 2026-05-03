@@ -6,24 +6,23 @@ FROM mcr.microsoft.com/devcontainers/python:1-${VARIANT}
 # Maturin needs rust + cargo + pkg-config + libssl-dev (transitive
 # openssl-sys via fastembed/hf-hub).
 #
-# The base image `mcr.microsoft.com/devcontainers/python:1-3.12-bookworm`
-# ships with `dl.yarnpkg.com` configured as an apt source whose GPG key
-# is expired. We don't need yarn for the maturin build, so drop that
-# source list before `apt-get update` to avoid `NO_PUBKEY` aborting the
-# whole step (apt-get returns exit 100 even though deb.debian.org's
-# main repo updates fine).
+# Rust toolchain is provisioned via the official devcontainer feature
+# (`ghcr.io/devcontainers/features/rust:1`) declared in devcontainer.json
+# so /usr/local/cargo gets the right ownership/permissions for the
+# `vscode` runtime user. A manual rustup install in this Dockerfile would
+# leave /usr/local/cargo/registry root-owned and the registry cache
+# write would fail with "Permission denied" the first time uv sync
+# triggers maturin → cargo as the vscode user.
+#
+# Drop /etc/apt/sources.list.d/yarn.list before apt-get update — the
+# base image's yarnpkg.com source has an expired GPG key that aborts
+# the whole RUN with "NO_PUBKEY 62D54FD4003F6525". The maturin build
+# doesn't need yarn.
 RUN rm -f /etc/apt/sources.list.d/yarn.list && \
     apt-get update && \
     apt-get install -y --no-install-recommends \
       pkg-config \
       libssl-dev && \
     rm -rf /var/lib/apt/lists/*
-
-ENV CARGO_HOME=/usr/local/cargo \
-    RUSTUP_HOME=/usr/local/rustup \
-    PATH=/usr/local/cargo/bin:${PATH}
-
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.95.0 --profile minimal -c rustfmt -c clippy && \
-    rustc --version && cargo --version
 
 RUN python -m pip install --no-cache-dir uv==0.6.17 'maturin>=1.5,<2.0'
