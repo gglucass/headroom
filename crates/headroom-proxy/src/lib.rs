@@ -7,6 +7,7 @@ pub mod error;
 pub mod headers;
 pub mod health;
 pub mod proxy;
+pub mod sse;
 pub mod websocket;
 
 pub use config::Config;

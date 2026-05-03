@@ -1454,6 +1454,7 @@ dependencies = [
  "hyper",
  "hyper-util",
  "pin-project-lite",
+ "proptest",
  "reqwest",
  "serde",
  "serde_json",

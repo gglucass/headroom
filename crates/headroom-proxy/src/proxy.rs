@@ -443,13 +443,54 @@ async fn forward_http(
         .clone()
         .or_else(|| upstream_request_id_openai.clone());
 
+    // PR-C1: detect SSE responses so the state machine can run in
+    // parallel with the byte-passthrough. We classify ONCE here and
+    // pick the response provider arm based on the request path —
+    // bytes flow to the client unchanged; the state machine sinks
+    // bytes into a `tokio::sync::mpsc` and runs in a spawned task
+    // that can never block the byte path.
+    let is_sse = is_sse_response(upstream_resp.headers());
+    let sse_kind = if is_sse {
+        SseStreamKind::for_request_path(&path_for_log)
+    } else {
+        SseStreamKind::None
+    };
+
     let resp_headers = filter_response_headers(upstream_resp.headers());
 
     // Stream response body back without buffering. Wrap errors so mid-stream
     // upstream failures are logged rather than silently truncating the client.
+    //
+    // PR-C1: when this is an SSE response, tee each chunk into a
+    // bounded mpsc so the spawned state-machine task can update
+    // telemetry without ever holding up the client. The mpsc is
+    // bounded; if the parser falls behind, `try_send` fails and we
+    // log + drop — the byte path is not affected. This is the
+    // explicit "never block on parser readiness" contract.
     let rid = request_id.clone();
+    let parser_tx = if !matches!(sse_kind, SseStreamKind::None) {
+        let (tx, rx) = tokio::sync::mpsc::channel::<bytes::Bytes>(SSE_PARSER_QUEUE_DEPTH);
+        let rid_for_parser = request_id.clone();
+        tokio::spawn(run_sse_state_machine(sse_kind, rx, rid_for_parser));
+        Some(tx)
+    } else {
+        None
+    };
     let resp_stream = upstream_resp.bytes_stream().map(move |r| match r {
-        Ok(b) => Ok(b),
+        Ok(b) => {
+            if let Some(tx) = &parser_tx {
+                // Best-effort tee. Bounded channel; the state
+                // machine never blocks the client byte path.
+                if let Err(e) = tx.try_send(b.clone()) {
+                    tracing::debug!(
+                        request_id = %rid,
+                        error = %e,
+                        "sse parser queue full or closed; skipping telemetry chunk"
+                    );
+                }
+            }
+            Ok(b)
+        }
         Err(e) => {
             tracing::warn!(request_id = %rid, error = %e, "upstream stream error mid-response");
             Err(e)
@@ -493,6 +534,173 @@ async fn forward_http(
     );
 
     Ok(response)
+}
+
+/// Bound on the in-flight queue between the byte-passthrough and the
+/// SSE state-machine task. Picked so that under steady-state streaming
+/// load (~5 events/100ms typical) the parser is never blocked on
+/// queue space, yet a stalled parser can't grow memory unboundedly.
+/// Tunable via `proxy.toml` if a deployment finds this insufficient.
+const SSE_PARSER_QUEUE_DEPTH: usize = 256;
+
+/// Which provider's state machine should run on this stream. Picked
+/// from the *request* path because the response content-type
+/// (`text/event-stream`) is identical across providers.
+#[derive(Debug, Clone, Copy)]
+enum SseStreamKind {
+    None,
+    Anthropic,
+    OpenAiChat,
+    OpenAiResponses,
+}
+
+impl SseStreamKind {
+    fn for_request_path(path: &str) -> Self {
+        match path {
+            "/v1/messages" => Self::Anthropic,
+            "/v1/chat/completions" => Self::OpenAiChat,
+            "/v1/responses" => Self::OpenAiResponses,
+            // No telemetry parser registered for this endpoint.
+            // We still pass bytes through unchanged.
+            _ => Self::None,
+        }
+    }
+}
+
+/// True if the upstream response is an SSE stream. Compares
+/// `content-type` against `text/event-stream` (with optional
+/// parameters). RFC 7231 §3.1.1.1: media types compare
+/// case-insensitive on the type/subtype tokens.
+fn is_sse_response(headers: &http::HeaderMap) -> bool {
+    headers
+        .get(http::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .map(|s| {
+            let media_type = s.split(';').next().unwrap_or("").trim();
+            media_type.eq_ignore_ascii_case("text/event-stream")
+        })
+        .unwrap_or(false)
+}
+
+/// Drive the per-provider state machine over a stream of byte chunks.
+/// Lives in its own task; the byte path never waits on it.
+async fn run_sse_state_machine(
+    kind: SseStreamKind,
+    mut rx: tokio::sync::mpsc::Receiver<bytes::Bytes>,
+    request_id: String,
+) {
+    use crate::sse::framing::SseFramer;
+
+    let mut framer = SseFramer::new();
+    // The state machines are different types; rather than introducing
+    // a trait object dance, run each variant in its own arm. The dead
+    // branches compile out cleanly and the hot path stays monomorphic.
+    match kind {
+        SseStreamKind::Anthropic => {
+            let mut state = crate::sse::anthropic::AnthropicStreamState::new();
+            while let Some(chunk) = rx.recv().await {
+                framer.push(&chunk);
+                while let Some(ev_result) = framer.next_event() {
+                    match ev_result {
+                        Ok(ev) => {
+                            if let Err(e) = state.apply(ev) {
+                                tracing::warn!(
+                                    request_id = %request_id,
+                                    error = %e,
+                                    "sse anthropic state-machine apply error"
+                                );
+                            }
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                request_id = %request_id,
+                                error = %e,
+                                "sse framer error"
+                            );
+                        }
+                    }
+                }
+            }
+            tracing::info!(
+                request_id = %request_id,
+                provider = "anthropic",
+                input_tokens = state.usage.input_tokens,
+                output_tokens = state.usage.output_tokens,
+                cache_creation_input_tokens = state.usage.cache_creation_input_tokens,
+                cache_read_input_tokens = state.usage.cache_read_input_tokens,
+                stop_reason = state.stop_reason.as_deref().unwrap_or(""),
+                blocks = state.blocks.len(),
+                "sse stream closed"
+            );
+        }
+        SseStreamKind::OpenAiChat => {
+            let mut state = crate::sse::openai_chat::ChunkState::new();
+            while let Some(chunk) = rx.recv().await {
+                framer.push(&chunk);
+                while let Some(ev_result) = framer.next_event() {
+                    match ev_result {
+                        Ok(ev) => {
+                            if let Err(e) = state.apply(ev) {
+                                tracing::warn!(
+                                    request_id = %request_id,
+                                    error = %e,
+                                    "sse openai_chat state-machine apply error"
+                                );
+                            }
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                request_id = %request_id,
+                                error = %e,
+                                "sse framer error"
+                            );
+                        }
+                    }
+                }
+            }
+            tracing::info!(
+                request_id = %request_id,
+                provider = "openai_chat",
+                choices = state.choices.len(),
+                has_usage = state.usage.is_some(),
+                "sse stream closed"
+            );
+        }
+        SseStreamKind::OpenAiResponses => {
+            let mut state = crate::sse::openai_responses::ResponseState::new();
+            while let Some(chunk) = rx.recv().await {
+                framer.push(&chunk);
+                while let Some(ev_result) = framer.next_event() {
+                    match ev_result {
+                        Ok(ev) => {
+                            if let Err(e) = state.apply(ev) {
+                                tracing::warn!(
+                                    request_id = %request_id,
+                                    error = %e,
+                                    "sse openai_responses state-machine apply error"
+                                );
+                            }
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                request_id = %request_id,
+                                error = %e,
+                                "sse framer error"
+                            );
+                        }
+                    }
+                }
+            }
+            tracing::info!(
+                request_id = %request_id,
+                provider = "openai_responses",
+                items = state.items.len(),
+                has_usage = state.usage.is_some(),
+                "sse stream closed"
+            );
+        }
+        SseStreamKind::None => {}
+    }
 }
 
 fn ensure_request_id(headers: &HeaderMap) -> String {

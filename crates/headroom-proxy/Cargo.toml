@@ -59,3 +59,9 @@ tokio-stream = "0.1"
 # value-equality misses whitespace, key order, and Unicode escape
 # differences that all bust the prompt cache.
 sha2 = "0.10"
+# PR-C1: property tests for the byte-level SSE parser. The parser
+# must never panic on arbitrary input bytes (TCP can hand us anything,
+# including malformed UTF-8 split mid-codepoint or fuzz-generated
+# noise). 100K cases is the project default for "no panic" parser
+# invariants — see `feedback_realignment_build_constraints.md`.
+proptest = "1"
