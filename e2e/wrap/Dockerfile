@@ -27,7 +27,7 @@ RUN apt-get update && \
       python3-pip \
       python3-venv && \
     ln -sf /usr/bin/python3 /usr/local/bin/python && \
-    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.95.0 --profile minimal && \
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.95.0 --profile minimal -c rustfmt -c clippy && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /workspace
