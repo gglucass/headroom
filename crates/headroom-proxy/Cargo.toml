@@ -41,6 +41,12 @@ humantime = "2"
 bytesize = "1"
 tokio-util = { version = "0.7" }
 headroom-core = { path = "../headroom-core" }
+# Phase D PR-D1: native Bedrock InvokeModel route. SigV4 + AWS
+# default credential chain.
+aws-sigv4 = { workspace = true }
+aws-config = { workspace = true }
+aws-credential-types = { workspace = true }
+aws-smithy-runtime-api = { workspace = true }
 
 [dev-dependencies]
 tower = { workspace = true, features = ["util"] }

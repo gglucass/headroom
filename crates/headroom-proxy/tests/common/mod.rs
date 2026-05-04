@@ -45,10 +45,27 @@ pub async fn start_proxy_with<F>(upstream: &str, customize: F) -> ProxyHandle
 where
     F: FnOnce(&mut Config),
 {
+    start_proxy_with_state(upstream, customize, |s| s).await
+}
+
+/// Start a proxy with both a Config customizer and an AppState
+/// post-processor. PR-D1: tests that exercise the Bedrock route
+/// inject credentials via `with_bedrock_credentials` here.
+#[allow(dead_code)]
+pub async fn start_proxy_with_state<F, G>(
+    upstream: &str,
+    customize: F,
+    customize_state: G,
+) -> ProxyHandle
+where
+    F: FnOnce(&mut Config),
+    G: FnOnce(AppState) -> AppState,
+{
     let upstream_url: Url = upstream.parse().expect("valid upstream url");
     let mut config = Config::for_test(upstream_url);
     customize(&mut config);
     let state = AppState::new(config.clone()).expect("app state");
+    let state = customize_state(state);
     let app = build_app(state).into_make_service_with_connect_info::<SocketAddr>();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
         .await

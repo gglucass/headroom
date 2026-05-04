@@ -296,6 +296,61 @@ pub struct CliArgs {
         action = clap::ArgAction::Set,
     )]
     pub enable_conversations_passthrough: bool,
+
+    /// Phase D PR-D1: enable the native Bedrock InvokeModel route.
+    /// When `true` (default), `POST /model/{model_id}/invoke` is
+    /// handled by the Rust `bedrock::invoke` handler — Anthropic-shape
+    /// bodies run through the live-zone compression path and the
+    /// proxy re-signs the request with SigV4 before forwarding to
+    /// the configured Bedrock endpoint. When `false`, the routes are
+    /// not mounted and requests fall through to the catch-all
+    /// (which forwards to `--upstream` byte-equal but does NOT
+    /// re-sign — operators MUST run an unsigned upstream that
+    /// happens to know what to do, otherwise this fails closed).
+    ///
+    /// Source priority: CLI flag → `HEADROOM_PROXY_ENABLE_BEDROCK_NATIVE`
+    /// env var → default (`true`).
+    #[arg(
+        long = "enable-bedrock-native",
+        env = "HEADROOM_PROXY_ENABLE_BEDROCK_NATIVE",
+        default_value_t = true,
+        action = clap::ArgAction::Set,
+    )]
+    pub enable_bedrock_native: bool,
+
+    /// AWS region to use when signing Bedrock requests. Default
+    /// `us-east-1`. The Bedrock endpoint URL derived from this
+    /// region is `https://bedrock-runtime.{region}.amazonaws.com`
+    /// (override via `--bedrock-endpoint` for FIPS or VPC endpoints).
+    ///
+    /// Source priority: CLI flag → `HEADROOM_PROXY_BEDROCK_REGION`
+    /// env var → `AWS_REGION` env var → default (`us-east-1`).
+    #[arg(
+        long = "bedrock-region",
+        env = "HEADROOM_PROXY_BEDROCK_REGION",
+        default_value = "us-east-1"
+    )]
+    pub bedrock_region: String,
+
+    /// Bedrock endpoint base URL. When unset (the common case), the
+    /// proxy derives `https://bedrock-runtime.{bedrock_region}.amazonaws.com`
+    /// from the configured region. Override for FIPS endpoints
+    /// (`bedrock-runtime-fips.{region}.amazonaws.com`), VPC endpoints,
+    /// or local-mock test setups.
+    ///
+    /// Source priority: CLI flag → `HEADROOM_PROXY_BEDROCK_ENDPOINT`
+    /// env var → derived-from-region.
+    #[arg(long = "bedrock-endpoint", env = "HEADROOM_PROXY_BEDROCK_ENDPOINT")]
+    pub bedrock_endpoint: Option<Url>,
+
+    /// AWS profile name passed to the `aws-config` default credential
+    /// chain. When unset, the chain uses the default behaviour
+    /// (env vars → `[default]` profile → IMDS / ECS task role).
+    ///
+    /// Source priority: CLI flag → `HEADROOM_PROXY_AWS_PROFILE`
+    /// env var → `AWS_PROFILE` env var → default chain.
+    #[arg(long = "aws-profile", env = "HEADROOM_PROXY_AWS_PROFILE")]
+    pub aws_profile: Option<String>,
 }
 
 fn parse_duration(s: &str) -> Result<Duration, String> {
@@ -350,6 +405,20 @@ pub struct Config {
     /// NOT gate compression of conversation items (that's
     /// C5+/B-phase territory).
     pub enable_conversations_passthrough: bool,
+    /// PR-D1: enable the native Bedrock InvokeModel route. Default
+    /// `true`. When disabled, the explicit Rust handlers are not
+    /// mounted; operators relying on the Python LiteLLM converter
+    /// keep their existing path.
+    pub enable_bedrock_native: bool,
+    /// PR-D1: AWS region used to sign Bedrock requests + (when no
+    /// explicit endpoint is set) derive the Bedrock endpoint URL.
+    pub bedrock_region: String,
+    /// PR-D1: Bedrock endpoint base URL. `None` means
+    /// "derive from region" (`https://bedrock-runtime.{region}.amazonaws.com`).
+    pub bedrock_endpoint: Option<Url>,
+    /// PR-D1: optional AWS profile name. When `None`, the default
+    /// credential chain (env → `[default]` profile → IMDS) is used.
+    pub aws_profile: Option<String>,
 }
 
 impl Config {
@@ -378,6 +447,10 @@ impl Config {
             strip_internal_headers: args.strip_internal_headers,
             enable_responses_streaming: args.enable_responses_streaming,
             enable_conversations_passthrough: args.enable_conversations_passthrough,
+            enable_bedrock_native: args.enable_bedrock_native,
+            bedrock_region: args.bedrock_region,
+            bedrock_endpoint: args.bedrock_endpoint,
+            aws_profile: args.aws_profile,
         }
     }
 
@@ -408,6 +481,14 @@ impl Config {
             // production traffic will hit.
             enable_responses_streaming: true,
             enable_conversations_passthrough: true,
+            // PR-D1: bedrock route default-on so tests exercise
+            // it without per-test opt-in. Tests that set
+            // `bedrock_endpoint` to a wiremock URL get the full
+            // sign-and-forward path.
+            enable_bedrock_native: true,
+            bedrock_region: "us-east-1".to_string(),
+            bedrock_endpoint: None,
+            aws_profile: None,
         }
     }
 }

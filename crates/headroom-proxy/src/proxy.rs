@@ -34,6 +34,14 @@ use crate::websocket::ws_handler;
 pub struct AppState {
     pub config: Arc<Config>,
     pub client: reqwest::Client,
+    /// PR-D1: AWS credentials resolved at startup via the
+    /// `aws-config` default chain. `None` when the proxy boots
+    /// without AWS creds available (operator running locally
+    /// against a non-Bedrock upstream); the Bedrock invoke handler
+    /// returns 5xx with a structured `event=bedrock_credentials_missing`
+    /// log so failures are LOUD — no silent fallback to unsigned
+    /// requests.
+    pub bedrock_credentials: Option<Arc<aws_credential_types::Credentials>>,
 }
 
 impl AppState {
@@ -52,7 +60,18 @@ impl AppState {
         Ok(Self {
             config: Arc::new(config),
             client,
+            bedrock_credentials: None,
         })
+    }
+
+    /// PR-D1: attach AWS credentials resolved out-of-band (via
+    /// `aws-config`'s default chain at startup). Returns the
+    /// modified state; intended to be chained off `AppState::new`.
+    /// Tests that don't exercise the Bedrock route can leave
+    /// credentials unset (the catch-all paths never read them).
+    pub fn with_bedrock_credentials(mut self, creds: aws_credential_types::Credentials) -> Self {
+        self.bedrock_credentials = Some(Arc::new(creds));
+        self
     }
 }
 
@@ -83,6 +102,32 @@ pub fn build_app(state: AppState) -> Router {
             "/v1/responses",
             post(crate::handlers::responses::handle_responses),
         );
+
+    // PR-D1: native AWS Bedrock InvokeModel route. Mounts only when
+    // `enable_bedrock_native` is on (default). The handler runs the
+    // live-zone compressor over Anthropic-shape bodies, signs with
+    // SigV4, and forwards to the configured Bedrock endpoint. The
+    // `/converse` route mounts the same handler — the wire shape is
+    // identical for `anthropic.claude-*` model IDs (Bedrock just
+    // accepts both legacy `invoke` and modern `converse` paths).
+    if state.config.enable_bedrock_native {
+        router = router
+            .route(
+                "/model/:model_id/invoke",
+                post(crate::bedrock::invoke::handle_invoke),
+            )
+            .route(
+                "/model/:model_id/converse",
+                post(crate::bedrock::invoke::handle_invoke),
+            );
+    } else {
+        tracing::warn!(
+            event = "bedrock_native_disabled",
+            "Bedrock native InvokeModel route disabled by \
+             --enable-bedrock-native=false; Bedrock requests will fall \
+             through to the catch-all (no SigV4 re-signing — fails closed)"
+        );
+    }
 
     // PR-C4: Conversations API (passthrough-with-instrumentation).
     // The flag is read once at app-build time so router shape
