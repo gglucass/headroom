@@ -119,7 +119,24 @@ pub fn build_app(state: AppState) -> Router {
             .route(
                 "/model/:model_id/converse",
                 post(crate::bedrock::invoke::handle_invoke),
+            )
+            // PR-D2: streaming counterpart. Bedrock's protocol is
+            // binary EventStream; the handler parses incrementally,
+            // optionally translates each chunk to an SSE frame, and
+            // tees translated frames into AnthropicStreamState for
+            // telemetry. See `bedrock::invoke_streaming`.
+            .route(
+                "/model/:model_id/invoke-with-response-stream",
+                post(crate::bedrock::invoke_streaming::handle_invoke_streaming),
             );
+        if !state.config.bedrock_validate_eventstream_crc {
+            tracing::warn!(
+                event = "bedrock_eventstream_crc_validation_disabled",
+                "Bedrock EventStream CRC validation is DISABLED — \
+                 only safe for debugging; production must keep \
+                 --bedrock-validate-eventstream-crc=true"
+            );
+        }
     } else {
         tracing::warn!(
             event = "bedrock_native_disabled",

@@ -47,6 +47,12 @@ aws-sigv4 = { workspace = true }
 aws-config = { workspace = true }
 aws-credential-types = { workspace = true }
 aws-smithy-runtime-api = { workspace = true }
+# Phase D PR-D2: Bedrock binary EventStream parser. AWS frames each
+# message with a CRC32 over the prelude and over the entire message;
+# `crc32fast` is the standard IEEE 802.3 implementation already
+# transitively pulled in by `aws-smithy-*` (so this is not an
+# additional cold dep — promoting to a direct one for clarity).
+crc32fast = "1"
 
 [dev-dependencies]
 tower = { workspace = true, features = ["util"] }

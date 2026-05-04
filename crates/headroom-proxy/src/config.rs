@@ -351,6 +351,25 @@ pub struct CliArgs {
     /// env var → `AWS_PROFILE` env var → default chain.
     #[arg(long = "aws-profile", env = "HEADROOM_PROXY_AWS_PROFILE")]
     pub aws_profile: Option<String>,
+
+    /// Phase D PR-D2: validate the prelude + message CRC32 on each
+    /// inbound Bedrock EventStream frame. Default `true` — production
+    /// MUST validate. Operators flip to `false` ONLY for debugging a
+    /// suspected wire-format issue (e.g. a corrupt-but-cooperative
+    /// upstream that emits invalid CRCs intentionally). When disabled,
+    /// the proxy still parses message boundaries; it just doesn't
+    /// reject on CRC mismatch. Per project policy, every flag flip
+    /// is logged at app-build time.
+    ///
+    /// Source priority: CLI flag → `HEADROOM_PROXY_BEDROCK_VALIDATE_EVENTSTREAM_CRC`
+    /// env var → default (`true`).
+    #[arg(
+        long = "bedrock-validate-eventstream-crc",
+        env = "HEADROOM_PROXY_BEDROCK_VALIDATE_EVENTSTREAM_CRC",
+        default_value_t = true,
+        action = clap::ArgAction::Set,
+    )]
+    pub bedrock_validate_eventstream_crc: bool,
 }
 
 fn parse_duration(s: &str) -> Result<Duration, String> {
@@ -419,6 +438,9 @@ pub struct Config {
     /// PR-D1: optional AWS profile name. When `None`, the default
     /// credential chain (env → `[default]` profile → IMDS) is used.
     pub aws_profile: Option<String>,
+    /// PR-D2: validate prelude + message CRC32 on inbound Bedrock
+    /// EventStream frames. Default `true`. Off only for debugging.
+    pub bedrock_validate_eventstream_crc: bool,
 }
 
 impl Config {
@@ -451,6 +473,7 @@ impl Config {
             bedrock_region: args.bedrock_region,
             bedrock_endpoint: args.bedrock_endpoint,
             aws_profile: args.aws_profile,
+            bedrock_validate_eventstream_crc: args.bedrock_validate_eventstream_crc,
         }
     }
 
@@ -489,6 +512,9 @@ impl Config {
             bedrock_region: "us-east-1".to_string(),
             bedrock_endpoint: None,
             aws_profile: None,
+            // PR-D2: production default — validate every CRC. Tests
+            // that exercise corruption paths flip this off per-case.
+            bedrock_validate_eventstream_crc: true,
         }
     }
 }

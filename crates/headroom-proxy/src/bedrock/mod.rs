@@ -41,12 +41,23 @@
 //! - [`invoke`] — POST handler for `/model/{model}/invoke`.
 //!
 //! Streaming (`/model/{model}/invoke-with-response-stream`) is
-//! Phase D PR-D2.
+//! handled by [`invoke_streaming`] in PR-D2. Binary EventStream
+//! parsing is in [`eventstream`]; the SSE translator is in
+//! [`eventstream_to_sse`].
 
 pub mod envelope;
+pub mod eventstream;
+pub mod eventstream_to_sse;
 pub mod invoke;
+pub mod invoke_streaming;
 pub mod sigv4;
 
 pub use envelope::{BedrockEnvelope, EnvelopeError};
+pub use eventstream::{
+    parse as parse_eventstream, CrcValidation, EventStreamMessage, EventStreamParser, HeaderValue,
+    MessageBuilder, ParseError,
+};
+pub use eventstream_to_sse::{translate_message, OutputMode, TranslateError, TranslateOutcome};
 pub use invoke::handle_invoke;
+pub use invoke_streaming::handle_invoke_streaming;
 pub use sigv4::{sign_request, SigV4Error, SigningInputs};
