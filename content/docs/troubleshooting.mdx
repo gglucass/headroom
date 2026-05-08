@@ -165,6 +165,37 @@ config.rolling_window.enabled = False
 
 ## Installation Issues
 
+### pipx installs an older Headroom version
+
+**Symptom**: PyPI shows a newer `headroom-ai` release, but `pipx install` or
+`pipx upgrade` keeps an older version. A pinned install can also fail with
+`No matching distribution found`.
+
+**Cause**: `pipx` resolves packages inside its app virtual environment. If that
+environment uses a Python version that Headroom does not publish wheels for yet,
+pip may skip newer releases and choose the newest compatible build it can use.
+
+Check the interpreter:
+
+```bash
+pipx list
+```
+
+Install with a supported Python explicitly:
+
+```bash
+pipx install --python python3.13 "headroom-ai[all]"
+```
+
+For a pinned release:
+
+```bash
+pipx install --python python3.13 "headroom-ai[all]==0.21.4"
+```
+
+If you already have Headroom installed under `pipx`, uninstall it first or
+reinstall it with the supported interpreter.
+
 ### pip install fails with C++ compilation error
 
 **Symptom**: `RuntimeError: Unsupported compiler -- at least C++11 support is needed!`
