@@ -10,25 +10,31 @@
       
       
       
+        <link rel="canonical" href="https://chopratejas.github.io/headroom/ccr/">
       
+      
+        <link rel="prev" href="../compression/">
+      
+      
+        <link rel="next" href="../image-compression/">
       
       
         
       
       
-      <link rel="icon" href="/headroom/assets/images/favicon.png">
+      <link rel="icon" href="../assets/images/favicon.png">
       <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
     
     
       
-        <title>Headroom</title>
+        <title>CCR (Lossless Retrieval) - Headroom</title>
       
     
     
-      <link rel="stylesheet" href="/headroom/assets/stylesheets/main.484c7ddc.min.css">
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
       
         
-        <link rel="stylesheet" href="/headroom/assets/stylesheets/palette.ab4e12ef.min.css">
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
       
       
 
@@ -47,9 +53,9 @@
       
     
     
-      <link rel="stylesheet" href="/headroom/stylesheets/extra.css">
+      <link rel="stylesheet" href="../stylesheets/extra.css">
     
-    <script>__md_scope=new URL("/headroom/",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
 
@@ -73,6 +79,11 @@
     <label class="md-overlay" for="__drawer"></label>
     <div data-md-component="skip">
       
+        
+        <a href="#ccr-compress-cache-retrieve" class="md-skip">
+          Skip to content
+        </a>
+      
     </div>
     <div data-md-component="announce">
       
@@ -85,7 +96,7 @@
 
 <header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href="/headroom/." title="Headroom" class="md-header__button md-logo" aria-label="Headroom" data-md-component="logo">
+    <a href=".." title="Headroom" class="md-header__button md-logo" aria-label="Headroom" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m12 18.54 7.37-5.74L21 14.07l-9 7-9-7 1.62-1.26zM12 16 3 9l9-7 9 7zm0-11.47L6.26 9 12 13.47 17.74 9z"/></svg>
@@ -105,7 +116,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              
+              CCR (Lossless Retrieval)
             
           </span>
         </div>
@@ -217,7 +228,7 @@
   
   
     <li class="md-tabs__item">
-      <a href="/headroom/." class="md-tabs__link">
+      <a href=".." class="md-tabs__link">
         
   
   
@@ -238,7 +249,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="/headroom/quickstart/" class="md-tabs__link">
+        <a href="../quickstart/" class="md-tabs__link">
           
   
   
@@ -256,11 +267,13 @@
   
   
   
+    
+  
   
     
     
-      <li class="md-tabs__item">
-        <a href="/headroom/proxy/" class="md-tabs__link">
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../proxy/" class="md-tabs__link">
           
   
   
@@ -282,7 +295,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="/headroom/integration-guide/" class="md-tabs__link">
+        <a href="../integration-guide/" class="md-tabs__link">
           
   
   
@@ -304,7 +317,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="/headroom/ARCHITECTURE/" class="md-tabs__link">
+        <a href="../ARCHITECTURE/" class="md-tabs__link">
           
   
   
@@ -326,7 +339,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="/headroom/benchmarks/" class="md-tabs__link">
+        <a href="../benchmarks/" class="md-tabs__link">
           
   
   
@@ -348,7 +361,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="/headroom/cli/" class="md-tabs__link">
+        <a href="../cli/" class="md-tabs__link">
           
   
   
@@ -370,7 +383,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="/headroom/macos-deployment/" class="md-tabs__link">
+        <a href="../macos-deployment/" class="md-tabs__link">
           
   
   
@@ -412,7 +425,7 @@
 
 <nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href="/headroom/." title="Headroom" class="md-nav__button md-logo" aria-label="Headroom" data-md-component="logo">
+    <a href=".." title="Headroom" class="md-nav__button md-logo" aria-label="Headroom" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m12 18.54 7.37-5.74L21 14.07l-9 7-9-7 1.62-1.26zM12 16 3 9l9-7 9 7zm0-11.47L6.26 9 12 13.47 17.74 9z"/></svg>
@@ -442,7 +455,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/." class="md-nav__link">
+      <a href=".." class="md-nav__link">
         
   
   
@@ -535,7 +548,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/quickstart/" class="md-nav__link">
+      <a href="../quickstart/" class="md-nav__link">
         
   
   
@@ -563,7 +576,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/getting-started/" class="md-nav__link">
+      <a href="../getting-started/" class="md-nav__link">
         
   
   
@@ -591,7 +604,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/docker-install/" class="md-nav__link">
+      <a href="../docker-install/" class="md-nav__link">
         
   
   
@@ -619,7 +632,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/persistent-installs/" class="md-nav__link">
+      <a href="../persistent-installs/" class="md-nav__link">
         
   
   
@@ -647,7 +660,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/configuration/" class="md-nav__link">
+      <a href="../configuration/" class="md-nav__link">
         
   
   
@@ -679,8 +692,10 @@
       
   
   
+    
   
   
+  
     
     
       
@@ -702,21 +717,22 @@
     
     
       
+        
+        
+      
       
         
       
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
       
         
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" checked>
         
           
-        
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_3" >
-        
-          
-          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
             
   
   
@@ -734,7 +750,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_3">
             <span class="md-nav__icon md-icon"></span>
             
@@ -752,7 +768,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/proxy/" class="md-nav__link">
+      <a href="../proxy/" class="md-nav__link">
         
   
   
@@ -780,7 +796,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/compression/" class="md-nav__link">
+      <a href="../compression/" class="md-nav__link">
         
   
   
@@ -805,10 +821,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="/headroom/ccr/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CCR (Lossless Retrieval)
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -824,6 +867,175 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#the-problem-with-traditional-compression" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Problem with Traditional Compression
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ccr-enabled-components" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CCR-Enabled Components
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-ccr-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How CCR Works
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="How CCR Works">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#phase-1-compression-store" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 1: Compression Store
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-2-tool-injection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 2: Tool Injection
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-3-response-handler" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 3: Response Handler
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-4-context-tracker" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 4: Context Tracker
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#message-level-ccr-intelligentcontext" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Message-Level CCR (IntelligentContext)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#features" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Features
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuration
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#why-this-matters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why This Matters
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#demo" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Demo
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Architecture
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -836,7 +1048,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/image-compression/" class="md-nav__link">
+      <a href="../image-compression/" class="md-nav__link">
         
   
   
@@ -864,7 +1076,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/memory/" class="md-nav__link">
+      <a href="../memory/" class="md-nav__link">
         
   
   
@@ -892,7 +1104,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/shared-context/" class="md-nav__link">
+      <a href="../shared-context/" class="md-nav__link">
         
   
   
@@ -920,7 +1132,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/learn/" class="md-nav__link">
+      <a href="../learn/" class="md-nav__link">
         
   
   
@@ -1021,7 +1233,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/integration-guide/" class="md-nav__link">
+      <a href="../integration-guide/" class="md-nav__link">
         
   
   
@@ -1049,7 +1261,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/langchain/" class="md-nav__link">
+      <a href="../langchain/" class="md-nav__link">
         
   
   
@@ -1077,7 +1289,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/agno/" class="md-nav__link">
+      <a href="../agno/" class="md-nav__link">
         
   
   
@@ -1105,7 +1317,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/strands/" class="md-nav__link">
+      <a href="../strands/" class="md-nav__link">
         
   
   
@@ -1133,7 +1345,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/mcp/" class="md-nav__link">
+      <a href="../mcp/" class="md-nav__link">
         
   
   
@@ -1232,7 +1444,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/ARCHITECTURE/" class="md-nav__link">
+      <a href="../ARCHITECTURE/" class="md-nav__link">
         
   
   
@@ -1260,7 +1472,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/transforms/" class="md-nav__link">
+      <a href="../transforms/" class="md-nav__link">
         
   
   
@@ -1288,7 +1500,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/text-compression/" class="md-nav__link">
+      <a href="../text-compression/" class="md-nav__link">
         
   
   
@@ -1316,7 +1528,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/llmlingua.md" class="md-nav__link">
+      <a href="../llmlingua.md" class="md-nav__link">
         
   
   
@@ -1413,7 +1625,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/benchmarks/" class="md-nav__link">
+      <a href="../benchmarks/" class="md-nav__link">
         
   
   
@@ -1441,7 +1653,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/LATENCY_BENCHMARKS/" class="md-nav__link">
+      <a href="../LATENCY_BENCHMARKS/" class="md-nav__link">
         
   
   
@@ -1469,7 +1681,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/LIMITATIONS/" class="md-nav__link">
+      <a href="../LIMITATIONS/" class="md-nav__link">
         
   
   
@@ -1574,7 +1786,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/cli/" class="md-nav__link">
+      <a href="../cli/" class="md-nav__link">
         
   
   
@@ -1602,7 +1814,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/api/" class="md-nav__link">
+      <a href="../api/" class="md-nav__link">
         
   
   
@@ -1630,7 +1842,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/sdk/" class="md-nav__link">
+      <a href="../sdk/" class="md-nav__link">
         
   
   
@@ -1658,7 +1870,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/network-diff-capture/" class="md-nav__link">
+      <a href="../network-diff-capture/" class="md-nav__link">
         
   
   
@@ -1686,7 +1898,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/metrics/" class="md-nav__link">
+      <a href="../metrics/" class="md-nav__link">
         
   
   
@@ -1714,7 +1926,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/errors/" class="md-nav__link">
+      <a href="../errors/" class="md-nav__link">
         
   
   
@@ -1742,7 +1954,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/troubleshooting/" class="md-nav__link">
+      <a href="../troubleshooting/" class="md-nav__link">
         
   
   
@@ -1835,7 +2047,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/macos-deployment/" class="md-nav__link">
+      <a href="../macos-deployment/" class="md-nav__link">
         
   
   
@@ -1880,6 +2092,165 @@
   
   
   
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#the-problem-with-traditional-compression" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Problem with Traditional Compression
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#ccr-enabled-components" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        CCR-Enabled Components
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-ccr-works" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How CCR Works
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="How CCR Works">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#phase-1-compression-store" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 1: Compression Store
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-2-tool-injection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 2: Tool Injection
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-3-response-handler" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 3: Response Handler
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#phase-4-context-tracker" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Phase 4: Context Tracker
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#message-level-ccr-intelligentcontext" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Message-Level CCR (IntelligentContext)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#features" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Features
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuration
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#why-this-matters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why This Matters
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#demo" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Demo
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#architecture" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Architecture
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
   
 </nav>
                   </div>
@@ -1892,8 +2263,229 @@
               
               <article class="md-content__inner md-typeset">
                 
-  <h1>404 - Not found</h1>
+                  
 
+
+  
+  
+
+
+<h1 id="ccr-compress-cache-retrieve">CCR: Compress-Cache-Retrieve<a class="headerlink" href="#ccr-compress-cache-retrieve" title="Permanent link">&para;</a></h1>
+<p>Headroom's CCR architecture makes compression <strong>reversible</strong>. When content is compressed, the original data is cached. If the LLM needs more data, it can retrieve it instantly.</p>
+<h2 id="the-problem-with-traditional-compression">The Problem with Traditional Compression<a class="headerlink" href="#the-problem-with-traditional-compression" title="Permanent link">&para;</a></h2>
+<p>Traditional compression is lossy — if you guess wrong about what's important, data is lost forever. This creates a difficult tradeoff:</p>
+<ul>
+<li><strong>Aggressive compression</strong>: Risk losing data the LLM needs</li>
+<li><strong>Conservative compression</strong>: Miss out on token savings</li>
+</ul>
+<p>CCR eliminates this tradeoff.</p>
+<h2 id="ccr-enabled-components">CCR-Enabled Components<a class="headerlink" href="#ccr-enabled-components" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Component</th>
+<th>What it compresses</th>
+<th>CCR integration</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>SmartCrusher</strong></td>
+<td>JSON arrays (tool outputs)</td>
+<td>Stores original array, marker includes hash</td>
+</tr>
+<tr>
+<td><strong>ContentRouter</strong></td>
+<td>Code, logs, search results, text</td>
+<td>Stores original content by strategy</td>
+</tr>
+<tr>
+<td><strong>IntelligentContextManager</strong></td>
+<td>Messages (conversation turns)</td>
+<td>Stores dropped messages, marker includes hash</td>
+</tr>
+</tbody>
+</table>
+<h2 id="how-ccr-works">How CCR Works<a class="headerlink" href="#how-ccr-works" title="Permanent link">&para;</a></h2>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>┌─────────────────────────────────────────────────────────────────┐
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>│  TOOL OUTPUT (1000 items)                                        │
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>│  └─ SmartCrusher compresses to 20 items                         │
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>│  └─ Original cached with hash=abc123                            │
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>│  └─ Retrieval tool injected into context                        │
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>└─────────────────────────────────────────────────────────────────┘
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>                              │
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>                              ▼
+</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>┌─────────────────────────────────────────────────────────────────┐
+</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>│  LLM PROCESSING                                                  │
+</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>│  Option A: LLM solves task with 20 items → Done (90% savings)   │
+</span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>│  Option B: LLM calls headroom_retrieve(hash=abc123)             │
+</span><span id="__span-0-13"><a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>│            → Response Handler executes retrieval automatically  │
+</span><span id="__span-0-14"><a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>│            → LLM receives full data, responds accurately        │
+</span><span id="__span-0-15"><a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>└─────────────────────────────────────────────────────────────────┘
+</span></code></pre></div>
+<h3 id="phase-1-compression-store">Phase 1: Compression Store<a class="headerlink" href="#phase-1-compression-store" title="Permanent link">&para;</a></h3>
+<p>When SmartCrusher compresses tool output:
+1. Original content is stored in an LRU cache
+2. A hash key is generated for retrieval
+3. A marker is added to the compressed output: <code>[1000 items compressed to 20. Retrieve more: hash=abc123]</code></p>
+<h3 id="phase-2-tool-injection">Phase 2: Tool Injection<a class="headerlink" href="#phase-2-tool-injection" title="Permanent link">&para;</a></h3>
+<p>Headroom injects a <code>headroom_retrieve</code> tool into the LLM's available tools:</p>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="p">{</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;headroom_retrieve&quot;</span><span class="p">,</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">  </span><span class="nt">&quot;description&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Retrieve original uncompressed data from Headroom cache&quot;</span><span class="p">,</span>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">  </span><span class="nt">&quot;parameters&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">    </span><span class="nt">&quot;hash&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;The hash key from the compression marker&quot;</span><span class="p">,</span>
+</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">    </span><span class="nt">&quot;query&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Optional: search within the cached data&quot;</span>
+</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="w">  </span><span class="p">}</span>
+</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="p">}</span>
+</span></code></pre></div>
+<h3 id="phase-3-response-handler">Phase 3: Response Handler<a class="headerlink" href="#phase-3-response-handler" title="Permanent link">&para;</a></h3>
+<p>When the LLM calls <code>headroom_retrieve</code>:
+1. Response Handler intercepts the tool call
+2. Retrieves data from the local cache (~1ms)
+3. Adds the result to the conversation
+4. Continues the API call automatically</p>
+<p><strong>The client never sees CCR tool calls</strong> — they're handled transparently.</p>
+<h3 id="phase-4-context-tracker">Phase 4: Context Tracker<a class="headerlink" href="#phase-4-context-tracker" title="Permanent link">&para;</a></h3>
+<p>Across multiple turns, the Context Tracker:
+1. Remembers what was compressed in earlier turns
+2. Analyzes new queries for relevance to compressed content
+3. Proactively expands relevant data before the LLM asks</p>
+<p><strong>Example:</strong>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>Turn 1: User searches for files
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>        → Tool returns 500 files
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a>        → SmartCrusher compresses to 15, caches original (hash=abc123)
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a>        → LLM sees 15 files, answers question
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a>
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a>Turn 5: User asks &quot;What about the auth middleware?&quot;
+</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a>        → Context Tracker detects &quot;auth&quot; might be in abc123
+</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a>        → Proactively expands compressed content
+</span><span id="__span-2-9"><a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a>        → LLM sees full file list, finds auth_middleware.py
+</span></code></pre></div></p>
+<h2 id="message-level-ccr-intelligentcontext">Message-Level CCR (IntelligentContext)<a class="headerlink" href="#message-level-ccr-intelligentcontext" title="Permanent link">&para;</a></h2>
+<p>IntelligentContextManager is a <strong>message-level compressor</strong>. When it drops low-importance messages to fit the context budget, those messages are stored in CCR:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>┌─────────────────────────────────────────────────────────────────┐
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>│  LONG CONVERSATION (100 messages, 50K tokens)                    │
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>│  └─ IntelligentContext scores messages by importance            │
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>│  └─ Drops 60 low-scoring messages                               │
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a>│  └─ Dropped messages cached with hash=def456                    │
+</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a>│  └─ Marker inserted: &quot;60 messages dropped, retrieve: def456&quot;    │
+</span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a>└─────────────────────────────────────────────────────────────────┘
+</span><span id="__span-3-8"><a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a>                              │
+</span><span id="__span-3-9"><a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a>                              ▼
+</span><span id="__span-3-10"><a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a>┌─────────────────────────────────────────────────────────────────┐
+</span><span id="__span-3-11"><a id="__codelineno-3-11" name="__codelineno-3-11" href="#__codelineno-3-11"></a>│  LLM PROCESSING                                                  │
+</span><span id="__span-3-12"><a id="__codelineno-3-12" name="__codelineno-3-12" href="#__codelineno-3-12"></a>│  Option A: LLM solves task with remaining messages → Done       │
+</span><span id="__span-3-13"><a id="__codelineno-3-13" name="__codelineno-3-13" href="#__codelineno-3-13"></a>│  Option B: LLM needs earlier context                            │
+</span><span id="__span-3-14"><a id="__codelineno-3-14" name="__codelineno-3-14" href="#__codelineno-3-14"></a>│            → Calls headroom_retrieve(hash=def456)               │
+</span><span id="__span-3-15"><a id="__codelineno-3-15" name="__codelineno-3-15" href="#__codelineno-3-15"></a>│            → Full conversation restored                          │
+</span><span id="__span-3-16"><a id="__codelineno-3-16" name="__codelineno-3-16" href="#__codelineno-3-16"></a>└─────────────────────────────────────────────────────────────────┘
+</span></code></pre></div>
+<p><strong>The marker includes the CCR reference:</strong>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>[Earlier context compressed: 60 message(s) dropped by importance scoring.
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>Full content available via ccr_retrieve tool with reference &#39;def456&#39;.]
+</span></code></pre></div></p>
+<p><strong>TOIN integration:</strong> When users retrieve dropped messages, TOIN learns to score those message patterns higher next time, improving future drop decisions across all users.</p>
+<h2 id="features">Features<a class="headerlink" href="#features" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Feature</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Automatic Response Handling</strong></td>
+<td>When LLM calls <code>headroom_retrieve</code>, the proxy handles it automatically</td>
+</tr>
+<tr>
+<td><strong>Multi-Turn Context Tracking</strong></td>
+<td>Tracks compressed content across turns, proactively expands when relevant</td>
+</tr>
+<tr>
+<td><strong>BM25 Search</strong></td>
+<td>LLM can search within compressed data: <code>headroom_retrieve(hash, query="errors")</code></td>
+</tr>
+<tr>
+<td><strong>Feedback Learning</strong></td>
+<td>Learns from retrieval patterns to improve future compression</td>
+</tr>
+</tbody>
+</table>
+<h2 id="configuration">Configuration<a class="headerlink" href="#configuration" title="Permanent link">&para;</a></h2>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="c1"># Proxy with CCR enabled (default)</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>headroom<span class="w"> </span>proxy<span class="w"> </span>--port<span class="w"> </span><span class="m">8787</span>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="c1"># Disable CCR response handling</span>
+</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>headroom<span class="w"> </span>proxy<span class="w"> </span>--no-ccr-responses
+</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a>
+</span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="c1"># Disable proactive expansion</span>
+</span><span id="__span-5-8"><a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a>headroom<span class="w"> </span>proxy<span class="w"> </span>--no-ccr-expansion
+</span></code></pre></div>
+<h2 id="why-this-matters">Why This Matters<a class="headerlink" href="#why-this-matters" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Approach</th>
+<th>Risk</th>
+<th>Savings</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>No compression</td>
+<td>None</td>
+<td>0%</td>
+</tr>
+<tr>
+<td>Traditional compression</td>
+<td>Data loss</td>
+<td>70-90%</td>
+</tr>
+<tr>
+<td>CCR compression</td>
+<td>None (reversible)</td>
+<td>70-90%</td>
+</tr>
+</tbody>
+</table>
+<p>CCR gives you the savings of aggressive compression with zero risk — the LLM can always retrieve the original data if needed.</p>
+<h2 id="demo">Demo<a class="headerlink" href="#demo" title="Permanent link">&para;</a></h2>
+<p>Run the CCR demonstration to see it in action:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>python<span class="w"> </span>examples/ccr_demo.py
+</span></code></pre></div>
+<p>Output:
+<div class="language-text highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>1. COMPRESSION STORE
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>   Original: 100 items (7,059 chars)
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>   Compressed: 8 items (633 chars)
+</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>   Reduction: 91.0%
+</span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>
+</span><span id="__span-7-6"><a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a>3. RESPONSE HANDLER
+</span><span id="__span-7-7"><a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a>   Detected CCR tool call: True
+</span><span id="__span-7-8"><a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a>   Retrieved 100 items automatically
+</span><span id="__span-7-9"><a id="__codelineno-7-9" name="__codelineno-7-9" href="#__codelineno-7-9"></a>
+</span><span id="__span-7-10"><a id="__codelineno-7-10" name="__codelineno-7-10" href="#__codelineno-7-10"></a>4. CONTEXT TRACKER
+</span><span id="__span-7-11"><a id="__codelineno-7-11" name="__codelineno-7-11" href="#__codelineno-7-11"></a>   Turn 5: User asks &quot;show authentication middleware&quot;
+</span><span id="__span-7-12"><a id="__codelineno-7-12" name="__codelineno-7-12" href="#__codelineno-7-12"></a>   Tracker found 1 relevant context
+</span><span id="__span-7-13"><a id="__codelineno-7-13" name="__codelineno-7-13" href="#__codelineno-7-13"></a>   → relevance=0.73
+</span><span id="__span-7-14"><a id="__codelineno-7-14" name="__codelineno-7-14" href="#__codelineno-7-14"></a>   Proactively expanded: 100 items
+</span></code></pre></div></p>
+<h2 id="architecture">Architecture<a class="headerlink" href="#architecture" title="Permanent link">&para;</a></h2>
+<p>For implementation details, see <a href="../ARCHITECTURE/#ccr-compress-cache-retrieve">ARCHITECTURE.md</a>.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
               </article>
             </div>
           
@@ -1973,10 +2565,10 @@
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": "/headroom/", "features": ["content.code.copy", "content.code.annotate", "content.tabs.link", "navigation.instant", "navigation.instant.progress", "navigation.tabs", "navigation.tabs.sticky", "navigation.sections", "navigation.expand", "navigation.top", "navigation.indexes", "search.highlight", "search.suggest", "search.share", "toc.follow", "header.autohide"], "search": "/headroom/assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["content.code.copy", "content.code.annotate", "content.tabs.link", "navigation.instant", "navigation.instant.progress", "navigation.tabs", "navigation.tabs.sticky", "navigation.sections", "navigation.expand", "navigation.top", "navigation.indexes", "search.highlight", "search.suggest", "search.share", "toc.follow", "header.autohide"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
     
     
-      <script src="/headroom/assets/javascripts/bundle.79ae519e.min.js"></script>
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
       
     
   </body>

@@ -10,25 +10,31 @@
       
       
       
+        <link rel="canonical" href="https://chopratejas.github.io/headroom/docker-install/">
       
+      
+        <link rel="prev" href="../getting-started/">
+      
+      
+        <link rel="next" href="../persistent-installs/">
       
       
         
       
       
-      <link rel="icon" href="/headroom/assets/images/favicon.png">
+      <link rel="icon" href="../assets/images/favicon.png">
       <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
     
     
       
-        <title>Headroom</title>
+        <title>Docker-Native Install - Headroom</title>
       
     
     
-      <link rel="stylesheet" href="/headroom/assets/stylesheets/main.484c7ddc.min.css">
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
       
         
-        <link rel="stylesheet" href="/headroom/assets/stylesheets/palette.ab4e12ef.min.css">
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
       
       
 
@@ -47,9 +53,9 @@
       
     
     
-      <link rel="stylesheet" href="/headroom/stylesheets/extra.css">
+      <link rel="stylesheet" href="../stylesheets/extra.css">
     
-    <script>__md_scope=new URL("/headroom/",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
 
@@ -73,6 +79,11 @@
     <label class="md-overlay" for="__drawer"></label>
     <div data-md-component="skip">
       
+        
+        <a href="#docker-native-install" class="md-skip">
+          Skip to content
+        </a>
+      
     </div>
     <div data-md-component="announce">
       
@@ -85,7 +96,7 @@
 
 <header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href="/headroom/." title="Headroom" class="md-header__button md-logo" aria-label="Headroom" data-md-component="logo">
+    <a href=".." title="Headroom" class="md-header__button md-logo" aria-label="Headroom" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m12 18.54 7.37-5.74L21 14.07l-9 7-9-7 1.62-1.26zM12 16 3 9l9-7 9 7zm0-11.47L6.26 9 12 13.47 17.74 9z"/></svg>
@@ -105,7 +116,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              
+              Docker-Native Install
             
           </span>
         </div>
@@ -217,7 +228,7 @@
   
   
     <li class="md-tabs__item">
-      <a href="/headroom/." class="md-tabs__link">
+      <a href=".." class="md-tabs__link">
         
   
   
@@ -234,11 +245,13 @@
   
   
   
+    
+  
   
     
     
-      <li class="md-tabs__item">
-        <a href="/headroom/quickstart/" class="md-tabs__link">
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../quickstart/" class="md-tabs__link">
           
   
   
@@ -260,7 +273,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="/headroom/proxy/" class="md-tabs__link">
+        <a href="../proxy/" class="md-tabs__link">
           
   
   
@@ -282,7 +295,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="/headroom/integration-guide/" class="md-tabs__link">
+        <a href="../integration-guide/" class="md-tabs__link">
           
   
   
@@ -304,7 +317,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="/headroom/ARCHITECTURE/" class="md-tabs__link">
+        <a href="../ARCHITECTURE/" class="md-tabs__link">
           
   
   
@@ -326,7 +339,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="/headroom/benchmarks/" class="md-tabs__link">
+        <a href="../benchmarks/" class="md-tabs__link">
           
   
   
@@ -348,7 +361,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="/headroom/cli/" class="md-tabs__link">
+        <a href="../cli/" class="md-tabs__link">
           
   
   
@@ -370,7 +383,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="/headroom/macos-deployment/" class="md-tabs__link">
+        <a href="../macos-deployment/" class="md-tabs__link">
           
   
   
@@ -412,7 +425,7 @@
 
 <nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href="/headroom/." title="Headroom" class="md-nav__button md-logo" aria-label="Headroom" data-md-component="logo">
+    <a href=".." title="Headroom" class="md-nav__button md-logo" aria-label="Headroom" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m12 18.54 7.37-5.74L21 14.07l-9 7-9-7 1.62-1.26zM12 16 3 9l9-7 9 7zm0-11.47L6.26 9 12 13.47 17.74 9z"/></svg>
@@ -442,7 +455,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/." class="md-nav__link">
+      <a href=".." class="md-nav__link">
         
   
   
@@ -466,8 +479,10 @@
       
   
   
+    
   
   
+  
     
     
       
@@ -485,21 +500,22 @@
     
     
       
+        
+        
+      
       
         
       
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
       
         
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" checked>
         
           
-        
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_2" >
-        
-          
-          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
             
   
   
@@ -517,7 +533,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_2">
             <span class="md-nav__icon md-icon"></span>
             
@@ -535,7 +551,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/quickstart/" class="md-nav__link">
+      <a href="../quickstart/" class="md-nav__link">
         
   
   
@@ -563,7 +579,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/getting-started/" class="md-nav__link">
+      <a href="../getting-started/" class="md-nav__link">
         
   
   
@@ -588,10 +604,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="/headroom/docker-install/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Docker-Native Install
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -607,6 +650,226 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#one-line-install" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        One-line install
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="One-line install">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#linux" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Linux
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#macos-bash-43" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        macOS (bash 4.3+)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#windows-powershell" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Windows PowerShell
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-the-installer-does" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What the installer does
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-the-wrapper-behaves" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How the wrapper behaves
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="How the wrapper behaves">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#native-headroom-commands" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Native Headroom commands
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#wrap-commands" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        wrap commands
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#persistent-docker-lifecycle-from-the-native-wrapper" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Persistent Docker lifecycle from the native wrapper
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#docker-compose-support" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Docker Compose support
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Docker Compose support">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#persistent-docker-runtime" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Persistent Docker runtime
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Persistent Docker runtime">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#headroom_workspace-vs-headroom_workspace_dir" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        HEADROOM_WORKSPACE vs HEADROOM_WORKSPACE_DIR
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#macos-linux" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        macOS / Linux
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#windows-powershell_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Windows PowerShell
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#environment-passthrough" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Environment passthrough
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#notes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Notes
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -619,7 +882,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/persistent-installs/" class="md-nav__link">
+      <a href="../persistent-installs/" class="md-nav__link">
         
   
   
@@ -647,7 +910,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/configuration/" class="md-nav__link">
+      <a href="../configuration/" class="md-nav__link">
         
   
   
@@ -752,7 +1015,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/proxy/" class="md-nav__link">
+      <a href="../proxy/" class="md-nav__link">
         
   
   
@@ -780,7 +1043,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/compression/" class="md-nav__link">
+      <a href="../compression/" class="md-nav__link">
         
   
   
@@ -808,7 +1071,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/ccr/" class="md-nav__link">
+      <a href="../ccr/" class="md-nav__link">
         
   
   
@@ -836,7 +1099,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/image-compression/" class="md-nav__link">
+      <a href="../image-compression/" class="md-nav__link">
         
   
   
@@ -864,7 +1127,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/memory/" class="md-nav__link">
+      <a href="../memory/" class="md-nav__link">
         
   
   
@@ -892,7 +1155,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/shared-context/" class="md-nav__link">
+      <a href="../shared-context/" class="md-nav__link">
         
   
   
@@ -920,7 +1183,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/learn/" class="md-nav__link">
+      <a href="../learn/" class="md-nav__link">
         
   
   
@@ -1021,7 +1284,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/integration-guide/" class="md-nav__link">
+      <a href="../integration-guide/" class="md-nav__link">
         
   
   
@@ -1049,7 +1312,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/langchain/" class="md-nav__link">
+      <a href="../langchain/" class="md-nav__link">
         
   
   
@@ -1077,7 +1340,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/agno/" class="md-nav__link">
+      <a href="../agno/" class="md-nav__link">
         
   
   
@@ -1105,7 +1368,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/strands/" class="md-nav__link">
+      <a href="../strands/" class="md-nav__link">
         
   
   
@@ -1133,7 +1396,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/mcp/" class="md-nav__link">
+      <a href="../mcp/" class="md-nav__link">
         
   
   
@@ -1232,7 +1495,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/ARCHITECTURE/" class="md-nav__link">
+      <a href="../ARCHITECTURE/" class="md-nav__link">
         
   
   
@@ -1260,7 +1523,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/transforms/" class="md-nav__link">
+      <a href="../transforms/" class="md-nav__link">
         
   
   
@@ -1288,7 +1551,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/text-compression/" class="md-nav__link">
+      <a href="../text-compression/" class="md-nav__link">
         
   
   
@@ -1316,7 +1579,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/llmlingua.md" class="md-nav__link">
+      <a href="../llmlingua.md" class="md-nav__link">
         
   
   
@@ -1413,7 +1676,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/benchmarks/" class="md-nav__link">
+      <a href="../benchmarks/" class="md-nav__link">
         
   
   
@@ -1441,7 +1704,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/LATENCY_BENCHMARKS/" class="md-nav__link">
+      <a href="../LATENCY_BENCHMARKS/" class="md-nav__link">
         
   
   
@@ -1469,7 +1732,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/LIMITATIONS/" class="md-nav__link">
+      <a href="../LIMITATIONS/" class="md-nav__link">
         
   
   
@@ -1574,7 +1837,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/cli/" class="md-nav__link">
+      <a href="../cli/" class="md-nav__link">
         
   
   
@@ -1602,7 +1865,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/api/" class="md-nav__link">
+      <a href="../api/" class="md-nav__link">
         
   
   
@@ -1630,7 +1893,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/sdk/" class="md-nav__link">
+      <a href="../sdk/" class="md-nav__link">
         
   
   
@@ -1658,7 +1921,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/network-diff-capture/" class="md-nav__link">
+      <a href="../network-diff-capture/" class="md-nav__link">
         
   
   
@@ -1686,7 +1949,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/metrics/" class="md-nav__link">
+      <a href="../metrics/" class="md-nav__link">
         
   
   
@@ -1714,7 +1977,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/errors/" class="md-nav__link">
+      <a href="../errors/" class="md-nav__link">
         
   
   
@@ -1742,7 +2005,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/troubleshooting/" class="md-nav__link">
+      <a href="../troubleshooting/" class="md-nav__link">
         
   
   
@@ -1835,7 +2098,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/macos-deployment/" class="md-nav__link">
+      <a href="../macos-deployment/" class="md-nav__link">
         
   
   
@@ -1880,6 +2143,216 @@
   
   
   
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#one-line-install" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        One-line install
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="One-line install">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#linux" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Linux
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#macos-bash-43" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        macOS (bash 4.3+)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#windows-powershell" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Windows PowerShell
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-the-installer-does" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What the installer does
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#how-the-wrapper-behaves" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        How the wrapper behaves
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="How the wrapper behaves">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#native-headroom-commands" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Native Headroom commands
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#wrap-commands" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        wrap commands
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#persistent-docker-lifecycle-from-the-native-wrapper" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Persistent Docker lifecycle from the native wrapper
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#docker-compose-support" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Docker Compose support
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Docker Compose support">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#persistent-docker-runtime" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Persistent Docker runtime
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Persistent Docker runtime">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#headroom_workspace-vs-headroom_workspace_dir" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        HEADROOM_WORKSPACE vs HEADROOM_WORKSPACE_DIR
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#macos-linux" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        macOS / Linux
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#windows-powershell_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Windows PowerShell
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#environment-passthrough" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Environment passthrough
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#notes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Notes
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
   
 </nav>
                   </div>
@@ -1892,8 +2365,173 @@
               
               <article class="md-content__inner md-typeset">
                 
-  <h1>404 - Not found</h1>
+                  
 
+
+  
+  
+
+
+<h1 id="docker-native-install">Docker-Native Install<a class="headerlink" href="#docker-native-install" title="Permanent link">&para;</a></h1>
+<p>Run Headroom without installing Python or Node.js on the host. The install scripts add a native <code>headroom</code> wrapper that keeps <strong>Headroom itself</strong> in Docker while orchestrating the rest of your workflow on the host OS.</p>
+<h2 id="one-line-install">One-line install<a class="headerlink" href="#one-line-install" title="Permanent link">&para;</a></h2>
+<h3 id="linux">Linux<a class="headerlink" href="#linux" title="Permanent link">&para;</a></h3>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>curl<span class="w"> </span>-fsSL<span class="w"> </span>https://raw.githubusercontent.com/chopratejas/headroom/main/scripts/install.sh<span class="w"> </span><span class="p">|</span><span class="w"> </span>bash
+</span></code></pre></div>
+<h3 id="macos-bash-43">macOS (bash 4.3+)<a class="headerlink" href="#macos-bash-43" title="Permanent link">&para;</a></h3>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>curl<span class="w"> </span>-fsSL<span class="w"> </span>https://raw.githubusercontent.com/chopratejas/headroom/main/scripts/install.sh<span class="w"> </span><span class="p">|</span><span class="w"> </span><span class="s2">&quot;</span><span class="k">$(</span>brew<span class="w"> </span>--prefix<span class="w"> </span>bash<span class="k">)</span><span class="s2">/bin/bash&quot;</span>
+</span></code></pre></div>
+<p>Stock <code>/bin/bash</code> on macOS is 3.2, so install a newer bash first (for example via Homebrew) and run the installer with that shell. The installed wrapper pins that same bash interpreter so later invocations stay on the supported runtime.</p>
+<h3 id="windows-powershell">Windows PowerShell<a class="headerlink" href="#windows-powershell" title="Permanent link">&para;</a></h3>
+<div class="language-powershell highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="nb">irm </span><span class="n">https</span><span class="p">://</span><span class="n">raw</span><span class="p">.</span><span class="n">githubusercontent</span><span class="p">.</span><span class="n">com</span><span class="p">/</span><span class="n">chopratejas</span><span class="p">/</span><span class="n">headroom</span><span class="p">/</span><span class="n">main</span><span class="p">/</span><span class="n">scripts</span><span class="p">/</span><span class="n">install</span><span class="p">.</span><span class="n">ps1</span> <span class="p">|</span> <span class="nb">iex</span>
+</span></code></pre></div>
+<h2 id="what-the-installer-does">What the installer does<a class="headerlink" href="#what-the-installer-does" title="Permanent link">&para;</a></h2>
+<ol>
+<li>Verifies Docker is installed and available.</li>
+<li>Pulls <code>ghcr.io/chopratejas/headroom:latest</code> by default, or reuses / pulls <code>HEADROOM_DOCKER_IMAGE</code> when you set a custom image override.</li>
+<li>Installs a <code>headroom</code> wrapper into <code>~/.local/bin</code> or <code>~/bin</code>.</li>
+<li>Updates shell startup files so the wrapper directory is on <code>PATH</code>.</li>
+</ol>
+<p>The wrapper keeps Headroom inside Docker and mounts host state back into the container so native behavior stays consistent:</p>
+<ul>
+<li>project workspace -&gt; <code>/workspace</code></li>
+<li><code>~/.headroom</code></li>
+<li><code>~/.claude</code></li>
+<li><code>~/.codex</code></li>
+<li><code>~/.gemini</code></li>
+</ul>
+<p>Port <code>8787</code> stays the default, so <code>http://localhost:8787</code> works the same way as a native install.</p>
+<p>Published releases also push versioned GHCR tags such as <code>ghcr.io/chopratejas/headroom:0.5.26</code>, and those images are built with the same synced package version used for the matching PyPI and npm release.</p>
+<h2 id="how-the-wrapper-behaves">How the wrapper behaves<a class="headerlink" href="#how-the-wrapper-behaves" title="Permanent link">&para;</a></h2>
+<h3 id="native-headroom-commands">Native Headroom commands<a class="headerlink" href="#native-headroom-commands" title="Permanent link">&para;</a></h3>
+<p>These run directly inside the container:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>headroom<span class="w"> </span>proxy
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>headroom<span class="w"> </span>learn
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>headroom<span class="w"> </span>mcp<span class="w"> </span>install
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>headroom<span class="w"> </span>memory<span class="w"> </span>list
+</span></code></pre></div>
+<p>For <code>proxy</code>, the wrapper publishes the selected port back to the host:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>docker<span class="w"> </span>run<span class="w"> </span>--rm<span class="w"> </span>-it<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span>-p<span class="w"> </span><span class="m">8787</span>:8787<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">  </span>-v<span class="w"> </span><span class="s2">&quot;</span><span class="nv">$PWD</span><span class="s2">:/workspace&quot;</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">  </span>-w<span class="w"> </span>/workspace<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="w">  </span>ghcr.io/chopratejas/headroom:latest<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="w">  </span>headroom<span class="w"> </span>proxy<span class="w"> </span>--host<span class="w"> </span><span class="m">0</span>.0.0.0<span class="w"> </span>--port<span class="w"> </span><span class="m">8787</span>
+</span></code></pre></div>
+<h3 id="wrap-commands"><code>wrap</code> commands<a class="headerlink" href="#wrap-commands" title="Permanent link">&para;</a></h3>
+<p><code>wrap</code> is host-oriented in Docker-native mode:</p>
+<ul>
+<li>the wrapper starts the Headroom proxy in Docker</li>
+<li>container-side prep writes Headroom config, memory, and <code>rtk</code> guidance into mounted host files</li>
+<li>the target CLI itself is launched on the host by the wrapper</li>
+</ul>
+<p>Supported host wrap flows:</p>
+<ul>
+<li><code>headroom wrap claude</code></li>
+<li><code>headroom wrap codex</code></li>
+<li><code>headroom wrap aider</code></li>
+<li><code>headroom wrap cursor</code></li>
+<li><code>headroom wrap openclaw</code></li>
+<li><code>headroom unwrap openclaw</code></li>
+</ul>
+<p>OpenClaw remains host-native in Docker-native mode:</p>
+<ul>
+<li>the host must already have the <code>openclaw</code> CLI installed</li>
+<li><code>headroom wrap openclaw</code> installs/configures the Headroom plugin through the host <code>openclaw</code> CLI</li>
+<li>plugin auto-start still launches the installed host <code>headroom</code> wrapper from <code>PATH</code>, which then runs Headroom in Docker</li>
+<li>local plugin source mode (<code>--plugin-path</code>) is also supported, but it may require host <code>npm</code> when build steps are needed</li>
+</ul>
+<h2 id="persistent-docker-lifecycle-from-the-native-wrapper">Persistent Docker lifecycle from the native wrapper<a class="headerlink" href="#persistent-docker-lifecycle-from-the-native-wrapper" title="Permanent link">&para;</a></h2>
+<p>The Docker-native <code>headroom</code> wrapper now exposes the persistent Docker lifecycle directly:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>headroom<span class="w"> </span>install<span class="w"> </span>apply<span class="w"> </span>--profile<span class="w"> </span>default<span class="w"> </span>--preset<span class="w"> </span>persistent-docker
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a>headroom<span class="w"> </span>install<span class="w"> </span>status
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a>headroom<span class="w"> </span>install<span class="w"> </span>restart
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a>headroom<span class="w"> </span>install<span class="w"> </span>remove
+</span></code></pre></div>
+<p>In Docker-native mode this surface is intentionally scoped to <strong>persistent-docker</strong>:</p>
+<ul>
+<li>supported: <code>apply</code>, <code>status</code>, <code>start</code>, <code>stop</code>, <code>restart</code>, <code>remove</code></li>
+<li>supported flags: <code>--profile</code>, <code>--port</code>, <code>--backend</code>, <code>--anyllm-provider</code>, <code>--region</code>, <code>--mode</code>, <code>--memory</code>, <code>--no-telemetry</code>, <code>--image</code></li>
+<li>not supported: <code>persistent-service</code>, <code>persistent-task</code>, or provider/user/system mutation flags such as <code>--scope</code>, <code>--providers</code>, and <code>--target</code></li>
+</ul>
+<p>Those broader lifecycle and config-mutation flows still belong to the Python-native <code>headroom install ...</code> command.</p>
+<p>Persistent Docker deployments launched by the wrapper also tag the proxy process with deployment metadata, so <code>/health</code> reports the active <code>profile</code>, <code>preset</code>, <code>runtime</code>, <code>supervisor</code>, and <code>scope</code> the same way the Python install subsystem does.</p>
+<h2 id="docker-compose-support">Docker Compose support<a class="headerlink" href="#docker-compose-support" title="Permanent link">&para;</a></h2>
+<p>Use <code>docker/docker-compose.native.yml</code> when you want an explicit compose-managed proxy or CLI shell, or when you prefer compose over the native wrapper's <code>headroom install ...</code> surface.</p>
+<h3 id="persistent-docker-runtime">Persistent Docker runtime<a class="headerlink" href="#persistent-docker-runtime" title="Permanent link">&para;</a></h3>
+<p>The <code>proxy</code> service now uses <code>restart: unless-stopped</code>, so compose can act as the always-on Docker runtime for Headroom:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">HEADROOM_HOST_HOME</span><span class="o">=</span><span class="s2">&quot;</span><span class="nv">$HOME</span><span class="s2">&quot;</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="nb">export</span><span class="w"> </span><span class="nv">HEADROOM_WORKSPACE</span><span class="o">=</span><span class="s2">&quot;</span><span class="nv">$PWD</span><span class="s2">&quot;</span>
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a>docker<span class="w"> </span>compose<span class="w"> </span>-f<span class="w"> </span>docker/docker-compose.native.yml<span class="w"> </span>up<span class="w"> </span>-d<span class="w"> </span>proxy
+</span></code></pre></div>
+<div class="language-powershell highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="nv">$env:HEADROOM_HOST_HOME</span> <span class="p">=</span> <span class="nv">$HOME</span>
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="nv">$env:HEADROOM_WORKSPACE</span> <span class="p">=</span> <span class="p">(</span><span class="nb">Get-Location</span><span class="p">).</span><span class="n">Path</span>
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="n">docker</span> <span class="n">compose</span> <span class="o">-f</span> <span class="n">docker</span><span class="p">/</span><span class="n">docker-compose</span><span class="p">.</span><span class="n">native</span><span class="p">.</span><span class="n">yml</span> <span class="n">up</span> <span class="n">-d</span> <span class="n">proxy</span>
+</span></code></pre></div>
+<p>This remains a supported persistent-Docker path when you want the proxy managed explicitly through Compose instead of the installed wrapper.</p>
+<h4 id="headroom_workspace-vs-headroom_workspace_dir"><code>HEADROOM_WORKSPACE</code> vs <code>HEADROOM_WORKSPACE_DIR</code><a class="headerlink" href="#headroom_workspace-vs-headroom_workspace_dir" title="Permanent link">&para;</a></h4>
+<p>These are two different variables — both are set by the compose file,
+and both are retained for backward compatibility:</p>
+<ul>
+<li><strong><code>HEADROOM_WORKSPACE</code></strong> (host-side) is the directory the compose file
+  bind-mounts into the container as <code>/workspace</code>. It behaves like CWD
+  in a native (non-Docker) run.</li>
+<li><strong><code>HEADROOM_WORKSPACE_DIR</code></strong> (inside-the-container) is the canonical
+  Headroom state root — part of the <a href="../filesystem-contract/">filesystem contract</a>
+  introduced in issue #175. The compose file sets it to
+  <code>/tmp/headroom-home/.headroom</code> so the proxy resolves savings, logs,
+  TOIN, and memory under the bind-mounted <code>${HOME}/.headroom</code>.</li>
+</ul>
+<p>You do not need to set <code>HEADROOM_WORKSPACE_DIR</code> manually when using the
+shipped compose file — it is already in the <code>environment:</code> block.</p>
+<h3 id="macos-linux">macOS / Linux<a class="headerlink" href="#macos-linux" title="Permanent link">&para;</a></h3>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">HEADROOM_HOST_HOME</span><span class="o">=</span><span class="s2">&quot;</span><span class="nv">$HOME</span><span class="s2">&quot;</span>
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="nb">export</span><span class="w"> </span><span class="nv">HEADROOM_WORKSPACE</span><span class="o">=</span><span class="s2">&quot;</span><span class="nv">$PWD</span><span class="s2">&quot;</span>
+</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a>docker<span class="w"> </span>compose<span class="w"> </span>-f<span class="w"> </span>docker/docker-compose.native.yml<span class="w"> </span>up<span class="w"> </span>proxy
+</span></code></pre></div>
+<h3 id="windows-powershell_1">Windows PowerShell<a class="headerlink" href="#windows-powershell_1" title="Permanent link">&para;</a></h3>
+<div class="language-powershell highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="nv">$env:HEADROOM_HOST_HOME</span> <span class="p">=</span> <span class="nv">$HOME</span>
+</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="nv">$env:HEADROOM_WORKSPACE</span> <span class="p">=</span> <span class="p">(</span><span class="nb">Get-Location</span><span class="p">).</span><span class="n">Path</span>
+</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="n">docker</span> <span class="n">compose</span> <span class="o">-f</span> <span class="n">docker</span><span class="p">/</span><span class="n">docker-compose</span><span class="p">.</span><span class="n">native</span><span class="p">.</span><span class="n">yml</span> <span class="n">up</span> <span class="n">proxy</span>
+</span></code></pre></div>
+<p>You can also run one-off CLI commands through compose:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>docker<span class="w"> </span>compose<span class="w"> </span>-f<span class="w"> </span>docker/docker-compose.native.yml<span class="w"> </span>run<span class="w"> </span>--rm<span class="w"> </span>cli<span class="w"> </span>learn
+</span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>docker<span class="w"> </span>compose<span class="w"> </span>-f<span class="w"> </span>docker/docker-compose.native.yml<span class="w"> </span>run<span class="w"> </span>--rm<span class="w"> </span>cli<span class="w"> </span>mcp<span class="w"> </span>install
+</span></code></pre></div>
+<h2 id="environment-passthrough">Environment passthrough<a class="headerlink" href="#environment-passthrough" title="Permanent link">&para;</a></h2>
+<p>The wrapper forwards Headroom and provider environment variables into the container, including common prefixes such as:</p>
+<ul>
+<li><code>HEADROOM_</code></li>
+<li><code>ANTHROPIC_</code></li>
+<li><code>OPENAI_</code></li>
+<li><code>GEMINI_</code></li>
+<li><code>AWS_</code></li>
+<li><code>GOOGLE_</code> / <code>GOOGLE_CLOUD_</code></li>
+<li><code>AZURE_</code></li>
+<li><code>OTEL_</code></li>
+</ul>
+<p>That keeps provider auth and runtime config working without maintaining a separate env file for the container.</p>
+<h2 id="notes">Notes<a class="headerlink" href="#notes" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Docker is the only required Headroom runtime dependency on the host.</li>
+<li>Wrapped tools like Claude Code, Codex CLI, Aider, and Cursor still run on the host when you use <code>headroom wrap ...</code>.</li>
+<li>The install scripts are idempotent: rerunning them refreshes the wrapper and image without duplicating shell profile blocks.</li>
+<li>For persistent service and task installs, use the Python-native <code>headroom install ...</code> workflow described in <a href="../persistent-installs/">Persistent Installs</a>.</li>
+<li>For Docker-native <code>headroom install ...</code>, the wrapper persists its profile manifest under <code>~/.headroom/deploy/&lt;profile&gt;/</code>.</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
               </article>
             </div>
           
@@ -1973,10 +2611,10 @@
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": "/headroom/", "features": ["content.code.copy", "content.code.annotate", "content.tabs.link", "navigation.instant", "navigation.instant.progress", "navigation.tabs", "navigation.tabs.sticky", "navigation.sections", "navigation.expand", "navigation.top", "navigation.indexes", "search.highlight", "search.suggest", "search.share", "toc.follow", "header.autohide"], "search": "/headroom/assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["content.code.copy", "content.code.annotate", "content.tabs.link", "navigation.instant", "navigation.instant.progress", "navigation.tabs", "navigation.tabs.sticky", "navigation.sections", "navigation.expand", "navigation.top", "navigation.indexes", "search.highlight", "search.suggest", "search.share", "toc.follow", "header.autohide"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
     
     
-      <script src="/headroom/assets/javascripts/bundle.79ae519e.min.js"></script>
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
       
     
   </body>

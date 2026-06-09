@@ -10,25 +10,31 @@
       
       
       
+        <link rel="canonical" href="https://chopratejas.github.io/headroom/network-diff-capture/">
       
+      
+        <link rel="prev" href="../sdk/">
+      
+      
+        <link rel="next" href="../metrics/">
       
       
         
       
       
-      <link rel="icon" href="/headroom/assets/images/favicon.png">
+      <link rel="icon" href="../assets/images/favicon.png">
       <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.6">
     
     
       
-        <title>Headroom</title>
+        <title>Differential Network Capture - Headroom</title>
       
     
     
-      <link rel="stylesheet" href="/headroom/assets/stylesheets/main.484c7ddc.min.css">
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
       
         
-        <link rel="stylesheet" href="/headroom/assets/stylesheets/palette.ab4e12ef.min.css">
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
       
       
 
@@ -47,9 +53,9 @@
       
     
     
-      <link rel="stylesheet" href="/headroom/stylesheets/extra.css">
+      <link rel="stylesheet" href="../stylesheets/extra.css">
     
-    <script>__md_scope=new URL("/headroom/",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
 
@@ -73,6 +79,11 @@
     <label class="md-overlay" for="__drawer"></label>
     <div data-md-component="skip">
       
+        
+        <a href="#differential-network-capture" class="md-skip">
+          Skip to content
+        </a>
+      
     </div>
     <div data-md-component="announce">
       
@@ -85,7 +96,7 @@
 
 <header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href="/headroom/." title="Headroom" class="md-header__button md-logo" aria-label="Headroom" data-md-component="logo">
+    <a href=".." title="Headroom" class="md-header__button md-logo" aria-label="Headroom" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m12 18.54 7.37-5.74L21 14.07l-9 7-9-7 1.62-1.26zM12 16 3 9l9-7 9 7zm0-11.47L6.26 9 12 13.47 17.74 9z"/></svg>
@@ -105,7 +116,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              
+              Differential Network Capture
             
           </span>
         </div>
@@ -217,7 +228,7 @@
   
   
     <li class="md-tabs__item">
-      <a href="/headroom/." class="md-tabs__link">
+      <a href=".." class="md-tabs__link">
         
   
   
@@ -238,7 +249,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="/headroom/quickstart/" class="md-tabs__link">
+        <a href="../quickstart/" class="md-tabs__link">
           
   
   
@@ -260,7 +271,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="/headroom/proxy/" class="md-tabs__link">
+        <a href="../proxy/" class="md-tabs__link">
           
   
   
@@ -282,7 +293,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="/headroom/integration-guide/" class="md-tabs__link">
+        <a href="../integration-guide/" class="md-tabs__link">
           
   
   
@@ -304,7 +315,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="/headroom/ARCHITECTURE/" class="md-tabs__link">
+        <a href="../ARCHITECTURE/" class="md-tabs__link">
           
   
   
@@ -326,7 +337,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="/headroom/benchmarks/" class="md-tabs__link">
+        <a href="../benchmarks/" class="md-tabs__link">
           
   
   
@@ -344,11 +355,13 @@
   
   
   
+    
+  
   
     
     
-      <li class="md-tabs__item">
-        <a href="/headroom/cli/" class="md-tabs__link">
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../cli/" class="md-tabs__link">
           
   
   
@@ -370,7 +383,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="/headroom/macos-deployment/" class="md-tabs__link">
+        <a href="../macos-deployment/" class="md-tabs__link">
           
   
   
@@ -412,7 +425,7 @@
 
 <nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href="/headroom/." title="Headroom" class="md-nav__button md-logo" aria-label="Headroom" data-md-component="logo">
+    <a href=".." title="Headroom" class="md-nav__button md-logo" aria-label="Headroom" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m12 18.54 7.37-5.74L21 14.07l-9 7-9-7 1.62-1.26zM12 16 3 9l9-7 9 7zm0-11.47L6.26 9 12 13.47 17.74 9z"/></svg>
@@ -442,7 +455,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/." class="md-nav__link">
+      <a href=".." class="md-nav__link">
         
   
   
@@ -535,7 +548,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/quickstart/" class="md-nav__link">
+      <a href="../quickstart/" class="md-nav__link">
         
   
   
@@ -563,7 +576,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/getting-started/" class="md-nav__link">
+      <a href="../getting-started/" class="md-nav__link">
         
   
   
@@ -591,7 +604,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/docker-install/" class="md-nav__link">
+      <a href="../docker-install/" class="md-nav__link">
         
   
   
@@ -619,7 +632,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/persistent-installs/" class="md-nav__link">
+      <a href="../persistent-installs/" class="md-nav__link">
         
   
   
@@ -647,7 +660,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/configuration/" class="md-nav__link">
+      <a href="../configuration/" class="md-nav__link">
         
   
   
@@ -752,7 +765,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/proxy/" class="md-nav__link">
+      <a href="../proxy/" class="md-nav__link">
         
   
   
@@ -780,7 +793,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/compression/" class="md-nav__link">
+      <a href="../compression/" class="md-nav__link">
         
   
   
@@ -808,7 +821,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/ccr/" class="md-nav__link">
+      <a href="../ccr/" class="md-nav__link">
         
   
   
@@ -836,7 +849,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/image-compression/" class="md-nav__link">
+      <a href="../image-compression/" class="md-nav__link">
         
   
   
@@ -864,7 +877,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/memory/" class="md-nav__link">
+      <a href="../memory/" class="md-nav__link">
         
   
   
@@ -892,7 +905,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/shared-context/" class="md-nav__link">
+      <a href="../shared-context/" class="md-nav__link">
         
   
   
@@ -920,7 +933,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/learn/" class="md-nav__link">
+      <a href="../learn/" class="md-nav__link">
         
   
   
@@ -1021,7 +1034,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/integration-guide/" class="md-nav__link">
+      <a href="../integration-guide/" class="md-nav__link">
         
   
   
@@ -1049,7 +1062,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/langchain/" class="md-nav__link">
+      <a href="../langchain/" class="md-nav__link">
         
   
   
@@ -1077,7 +1090,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/agno/" class="md-nav__link">
+      <a href="../agno/" class="md-nav__link">
         
   
   
@@ -1105,7 +1118,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/strands/" class="md-nav__link">
+      <a href="../strands/" class="md-nav__link">
         
   
   
@@ -1133,7 +1146,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/mcp/" class="md-nav__link">
+      <a href="../mcp/" class="md-nav__link">
         
   
   
@@ -1232,7 +1245,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/ARCHITECTURE/" class="md-nav__link">
+      <a href="../ARCHITECTURE/" class="md-nav__link">
         
   
   
@@ -1260,7 +1273,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/transforms/" class="md-nav__link">
+      <a href="../transforms/" class="md-nav__link">
         
   
   
@@ -1288,7 +1301,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/text-compression/" class="md-nav__link">
+      <a href="../text-compression/" class="md-nav__link">
         
   
   
@@ -1316,7 +1329,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/llmlingua.md" class="md-nav__link">
+      <a href="../llmlingua.md" class="md-nav__link">
         
   
   
@@ -1413,7 +1426,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/benchmarks/" class="md-nav__link">
+      <a href="../benchmarks/" class="md-nav__link">
         
   
   
@@ -1441,7 +1454,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/LATENCY_BENCHMARKS/" class="md-nav__link">
+      <a href="../LATENCY_BENCHMARKS/" class="md-nav__link">
         
   
   
@@ -1469,7 +1482,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/LIMITATIONS/" class="md-nav__link">
+      <a href="../LIMITATIONS/" class="md-nav__link">
         
   
   
@@ -1501,8 +1514,10 @@
       
   
   
+    
   
   
+  
     
     
       
@@ -1524,21 +1539,22 @@
     
     
       
+        
+        
+      
       
         
       
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
       
         
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" checked>
         
           
-        
-        <input class="md-nav__toggle md-toggle md-toggle--indeterminate" type="checkbox" id="__nav_7" >
-        
-          
-          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="">
             
   
   
@@ -1556,7 +1572,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_7">
             <span class="md-nav__icon md-icon"></span>
             
@@ -1574,7 +1590,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/cli/" class="md-nav__link">
+      <a href="../cli/" class="md-nav__link">
         
   
   
@@ -1602,7 +1618,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/api/" class="md-nav__link">
+      <a href="../api/" class="md-nav__link">
         
   
   
@@ -1630,7 +1646,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/sdk/" class="md-nav__link">
+      <a href="../sdk/" class="md-nav__link">
         
   
   
@@ -1655,10 +1671,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="/headroom/network-diff-capture/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Differential Network Capture
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -1674,6 +1717,59 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#run-the-harness" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Run The Harness
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#generate-a-report" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Generate A Report
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#custom-claude-invocation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Custom Claude Invocation
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -1686,7 +1782,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/metrics/" class="md-nav__link">
+      <a href="../metrics/" class="md-nav__link">
         
   
   
@@ -1714,7 +1810,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/errors/" class="md-nav__link">
+      <a href="../errors/" class="md-nav__link">
         
   
   
@@ -1742,7 +1838,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/troubleshooting/" class="md-nav__link">
+      <a href="../troubleshooting/" class="md-nav__link">
         
   
   
@@ -1835,7 +1931,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/headroom/macos-deployment/" class="md-nav__link">
+      <a href="../macos-deployment/" class="md-nav__link">
         
   
   
@@ -1880,6 +1976,49 @@
   
   
   
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#run-the-harness" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Run The Harness
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#generate-a-report" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Generate A Report
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#custom-claude-invocation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Custom Claude Invocation
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
   
 </nav>
                   </div>
@@ -1892,8 +2031,75 @@
               
               <article class="md-content__inner md-typeset">
                 
-  <h1>404 - Not found</h1>
+                  
 
+
+  
+  
+
+
+<h1 id="differential-network-capture">Differential Network Capture<a class="headerlink" href="#differential-network-capture" title="Permanent link">&para;</a></h1>
+<p>Headroom includes a containerized harness for comparing Claude Code traffic sent
+directly to Anthropic with traffic sent through a Headroom proxy. The harness
+uses mitmproxy in two isolated lanes, writes sanitized JSONL captures, and then
+generates Markdown/JSON reports with request route, header, body size, body hash,
+and JSON payload differences.</p>
+<h2 id="run-the-harness">Run The Harness<a class="headerlink" href="#run-the-harness" title="Permanent link">&para;</a></h2>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nb">cd</span><span class="w"> </span>docker/differential-network-capture
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>mkdir<span class="w"> </span>-p<span class="w"> </span>captures
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="nb">export</span><span class="w"> </span><span class="nv">ANTHROPIC_API_KEY</span><span class="o">=</span>...
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="nb">export</span><span class="w"> </span><span class="nv">CLAUDE_PROMPT</span><span class="o">=</span><span class="s2">&quot;Summarize this repository in one sentence.&quot;</span>
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>docker<span class="w"> </span>compose<span class="w"> </span>up<span class="w"> </span>--build<span class="w"> </span>mitm-direct<span class="w"> </span>mitm-headroom-upstream<span class="w"> </span>headroom-proxy<span class="w"> </span>mitm-headroom-client
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>docker<span class="w"> </span>compose<span class="w"> </span>--profile<span class="w"> </span>run<span class="w"> </span>run<span class="w"> </span>--rm<span class="w"> </span>claude-direct
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>docker<span class="w"> </span>compose<span class="w"> </span>--profile<span class="w"> </span>run<span class="w"> </span>run<span class="w"> </span>--rm<span class="w"> </span>claude-headroom
+</span></code></pre></div>
+<p>The primary captures are written to:</p>
+<ul>
+<li><code>docker/differential-network-capture/captures/direct.jsonl</code></li>
+<li><code>docker/differential-network-capture/captures/headroom-client.jsonl</code></li>
+</ul>
+<p>The Headroom lane also writes
+<code>docker/differential-network-capture/captures/headroom-upstream.jsonl</code>, which is
+the request Headroom forwards to Anthropic after proxy processing.</p>
+<p>By default only <code>api.anthropic.com</code> is logged. Override
+<code>CAPTURE_INCLUDE_HOSTS</code> with a comma-separated list to include other hosts.</p>
+<h2 id="generate-a-report">Generate A Report<a class="headerlink" href="#generate-a-report" title="Permanent link">&para;</a></h2>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>headroom<span class="w"> </span>capture<span class="w"> </span>network-diff<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span>--direct<span class="w"> </span>docker/differential-network-capture/captures/direct.jsonl<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">  </span>--headroom<span class="w"> </span>docker/differential-network-capture/captures/headroom-client.jsonl<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">  </span>--output<span class="w"> </span>docker/differential-network-capture/captures/report.md<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">  </span>--json-output<span class="w"> </span>docker/differential-network-capture/captures/report.json
+</span></code></pre></div>
+<p>The report redacts sensitive header values and sensitive query values before
+comparison. Request bodies are captured so structural payload differences can be
+identified; keep the generated <code>captures/</code> directory out of commits because it
+may contain prompts, tool outputs, and repository context.</p>
+<p>For Claude Code deferred-tool investigations, the paired exchange table includes
+top-level Anthropic <code>tools</code> counts and serialized tool bytes. A jump from
+<code>tools=0-&gt;N</code> in the Headroom client lane is evidence that Claude Code eagerly
+materialized tool schemas before the request reached Headroom.</p>
+<h2 id="custom-claude-invocation">Custom Claude Invocation<a class="headerlink" href="#custom-claude-invocation" title="Permanent link">&para;</a></h2>
+<p>Set <code>CLAUDE_COMMAND</code> to run the exact command under test in both lanes:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="nv">CLAUDE_COMMAND</span><span class="o">=</span><span class="s1">&#39;claude -p &quot;read README.md and summarize the proxy setup&quot;&#39;</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">  </span>docker<span class="w"> </span>compose<span class="w"> </span>--profile<span class="w"> </span>run<span class="w"> </span>run<span class="w"> </span>--rm<span class="w"> </span>claude-direct
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="nv">CLAUDE_COMMAND</span><span class="o">=</span><span class="s1">&#39;claude -p &quot;read README.md and summarize the proxy setup&quot;&#39;</span><span class="w"> </span><span class="se">\</span>
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">  </span>docker<span class="w"> </span>compose<span class="w"> </span>--profile<span class="w"> </span>run<span class="w"> </span>run<span class="w"> </span>--rm<span class="w"> </span>claude-headroom
+</span></code></pre></div>
+<p>Use <code>CLAUDE_DIRECT_ARGS</code> and <code>CLAUDE_HEADROOM_ARGS</code> when each lane needs
+different flags.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
               </article>
             </div>
           
@@ -1973,10 +2179,10 @@
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": "/headroom/", "features": ["content.code.copy", "content.code.annotate", "content.tabs.link", "navigation.instant", "navigation.instant.progress", "navigation.tabs", "navigation.tabs.sticky", "navigation.sections", "navigation.expand", "navigation.top", "navigation.indexes", "search.highlight", "search.suggest", "search.share", "toc.follow", "header.autohide"], "search": "/headroom/assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["content.code.copy", "content.code.annotate", "content.tabs.link", "navigation.instant", "navigation.instant.progress", "navigation.tabs", "navigation.tabs.sticky", "navigation.sections", "navigation.expand", "navigation.top", "navigation.indexes", "search.highlight", "search.suggest", "search.share", "toc.follow", "header.autohide"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
     
     
-      <script src="/headroom/assets/javascripts/bundle.79ae519e.min.js"></script>
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
       
     
   </body>
