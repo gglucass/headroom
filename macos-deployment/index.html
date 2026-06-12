@@ -978,6 +978,8 @@
       
         
       
+        
+      
     
     
     
@@ -1040,6 +1042,34 @@
     
   
     Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../vertex/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Vertex AI
   
 
     
@@ -2558,6 +2588,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#apple-gpu-mps-embedding-offload" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Apple GPU (MPS) Embedding Offload
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#faq" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3260,6 +3301,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#apple-gpu-mps-embedding-offload" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Apple GPU (MPS) Embedding Offload
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#faq" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3763,6 +3815,25 @@ extra and follow <code>wiki/transforms.md</code>.</p>
 </span><span id="__span-48-7"><a id="__codelineno-48-7" name="__codelineno-48-7" href="#__codelineno-48-7"></a><span class="w">    </span><span class="nt">&lt;integer&gt;</span>536870912<span class="nt">&lt;/integer&gt;</span><span class="w"> </span><span class="cm">&lt;!-- 512 MB --&gt;</span>
 </span><span id="__span-48-8"><a id="__codelineno-48-8" name="__codelineno-48-8" href="#__codelineno-48-8"></a><span class="nt">&lt;/dict&gt;</span>
 </span></code></pre></div>
+<h2 id="apple-gpu-mps-embedding-offload">Apple GPU (MPS) Embedding Offload<a class="headerlink" href="#apple-gpu-mps-embedding-offload" title="Permanent link">&para;</a></h2>
+<p>On Apple Silicon, the proxy's memory embedder can run on the Apple GPU (MPS)
+instead of the default ONNX CPU backend. Offloading embedding to the GPU frees
+the CPU under load, keeping the proxy responsive — useful on fanless Macs (e.g.
+the M5 Air) that are prone to CPU-saturation timeouts.</p>
+<p>Enable it by installing the extra and setting the env var:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-49-1"><a id="__codelineno-49-1" name="__codelineno-49-1" href="#__codelineno-49-1"></a>pip<span class="w"> </span>install<span class="w"> </span><span class="s1">&#39;headroom-ai[pytorch-mps]&#39;</span><span class="w">   </span><span class="c1"># also works as [pytorch_mps]</span>
+</span><span id="__span-49-2"><a id="__codelineno-49-2" name="__codelineno-49-2" href="#__codelineno-49-2"></a><span class="nb">export</span><span class="w"> </span><span class="nv">HEADROOM_EMBEDDER_RUNTIME</span><span class="o">=</span>pytorch_mps
+</span></code></pre></div>
+<p>Under a LaunchAgent, set the env var in the plist <code>EnvironmentVariables</code>
+section:</p>
+<div class="language-xml highlight"><pre><span></span><code><span id="__span-50-1"><a id="__codelineno-50-1" name="__codelineno-50-1" href="#__codelineno-50-1"></a><span class="nt">&lt;key&gt;</span>HEADROOM_EMBEDDER_RUNTIME<span class="nt">&lt;/key&gt;</span>
+</span><span id="__span-50-2"><a id="__codelineno-50-2" name="__codelineno-50-2" href="#__codelineno-50-2"></a><span class="nt">&lt;string&gt;</span>pytorch_mps<span class="nt">&lt;/string&gt;</span>
+</span></code></pre></div>
+<p>It only engages when Apple MPS is actually available (Apple Silicon + torch).
+If MPS is unavailable or the dependencies are missing, the proxy logs a warning
+and uses the existing default embedder selection path. This is strictly opt-in;
+default behavior is unchanged. See <a href="../memory/#embedding-runtime--gpu-offload-apple-silicon">Memory</a>
+for details.</p>
 <h2 id="faq">FAQ<a class="headerlink" href="#faq" title="Permanent link">&para;</a></h2>
 <p><strong>Q: Why LaunchAgent instead of running <code>headroom proxy</code> manually?</strong></p>
 <p>A: LaunchAgent provides automatic startup, crash recovery, and proper lifecycle management. You don't have to remember to start the proxy or keep a terminal window open.</p>
@@ -3772,7 +3843,7 @@ extra and follow <code>wiki/transforms.md</code>.</p>
 <p>A: Minimal. The proxy adds ~10-50ms latency while reducing token costs by 50-90%. The cost savings far outweigh the latency.</p>
 <p><strong>Q: Do I need to restart the proxy when configuration changes?</strong></p>
 <p>A: Yes. After changing the plist, reload the service:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-49-1"><a id="__codelineno-49-1" name="__codelineno-49-1" href="#__codelineno-49-1"></a>launchctl<span class="w"> </span>kickstart<span class="w"> </span>-k<span class="w"> </span>gui/<span class="k">$(</span>id<span class="w"> </span>-u<span class="k">)</span>/com.headroom.proxy
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-51-1"><a id="__codelineno-51-1" name="__codelineno-51-1" href="#__codelineno-51-1"></a>launchctl<span class="w"> </span>kickstart<span class="w"> </span>-k<span class="w"> </span>gui/<span class="k">$(</span>id<span class="w"> </span>-u<span class="k">)</span>/com.headroom.proxy
 </span></code></pre></div>
 <p><strong>Q: Can I use this with multiple API providers?</strong></p>
 <p>A: The LaunchAgent setup is Anthropic-specific. For other providers, see <a href="../proxy/">proxy.md</a> for configuration options.</p>
