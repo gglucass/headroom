@@ -2834,7 +2834,7 @@ totals.</p>
 <h3 id="anonymous-telemetry-vs-otel">Anonymous Telemetry vs OTEL<a class="headerlink" href="#anonymous-telemetry-vs-otel" title="Permanent link">&para;</a></h3>
 <p>Headroom has two separate systems:</p>
 <ul>
-<li><code>HEADROOM_TELEMETRY</code> / <code>--no-telemetry</code> controls the privacy-preserving anonymous data-flywheel beacon and TOIN-related aggregate reporting.</li>
+<li><code>HEADROOM_TELEMETRY</code> / <code>--telemetry</code> / <code>--no-telemetry</code> controls the privacy-preserving anonymous data-flywheel beacon and TOIN-related aggregate reporting. It is <strong>off by default</strong> (opt-in): set <code>HEADROOM_TELEMETRY=on</code> or pass <code>--telemetry</code> to enable it.</li>
 <li><code>HEADROOM_OTEL_*</code> controls operational OTEL metric export.</li>
 </ul>
 <p>They are independent by design so you can disable the anonymous beacon while keeping OTEL metrics enabled, or vice versa.</p>
