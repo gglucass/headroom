@@ -3544,19 +3544,19 @@
 <td>Disable stale/superseded read compression</td>
 </tr>
 <tr>
-<td><code>--no-intelligent-context</code></td>
+<td><code>--no-ccr-inject-tool</code></td>
 <td>off</td>
-<td>Disable intelligent context manager</td>
+<td>Disable injecting the <code>headroom_retrieve</code> tool</td>
 </tr>
 <tr>
-<td><code>--no-intelligent-scoring</code></td>
+<td><code>--no-ccr-marker</code></td>
 <td>off</td>
-<td>Disable multi-factor importance scoring</td>
+<td>Disable adding retrieval markers to compressed output</td>
 </tr>
 <tr>
-<td><code>--no-compress-first</code></td>
+<td><code>--no-ccr-proactive-expansion</code></td>
 <td>off</td>
-<td>Disable deep compression before dropping messages</td>
+<td>Disable proactive CCR context expansion</td>
 </tr>
 <tr>
 <td><code>--memory</code></td>
@@ -3929,7 +3929,7 @@ to <code>~/.headroom/logs/proxy.log</code> — see the
 <tbody>
 <tr>
 <td><code>--db-path</code></td>
-<td><code>headroom_memory.db</code></td>
+<td><code>./.headroom/memory.db</code> if present, else <code>~/.headroom/memory.db</code></td>
 <td>Memory database path</td>
 </tr>
 <tr>
@@ -3979,7 +3979,7 @@ to <code>~/.headroom/logs/proxy.log</code> — see the
 </tr>
 <tr>
 <td><code>--db-path</code></td>
-<td><code>headroom_memory.db</code></td>
+<td><code>./.headroom/memory.db</code> if present, else <code>~/.headroom/memory.db</code></td>
 <td>Memory database path</td>
 </tr>
 <tr>
@@ -4003,7 +4003,7 @@ to <code>~/.headroom/logs/proxy.log</code> — see the
 <tbody>
 <tr>
 <td><code>--db-path</code></td>
-<td><code>headroom_memory.db</code></td>
+<td><code>./.headroom/memory.db</code> if present, else <code>~/.headroom/memory.db</code></td>
 <td>Memory database path</td>
 </tr>
 </tbody>
@@ -4028,7 +4028,7 @@ to <code>~/.headroom/logs/proxy.log</code> — see the
 </tr>
 <tr>
 <td><code>--db-path</code></td>
-<td><code>headroom_memory.db</code></td>
+<td><code>./.headroom/memory.db</code> if present, else <code>~/.headroom/memory.db</code></td>
 <td>Memory database path</td>
 </tr>
 <tr>
@@ -4064,7 +4064,7 @@ to <code>~/.headroom/logs/proxy.log</code> — see the
 </tr>
 <tr>
 <td><code>--db-path</code></td>
-<td><code>headroom_memory.db</code></td>
+<td><code>./.headroom/memory.db</code> if present, else <code>~/.headroom/memory.db</code></td>
 <td>Memory database path</td>
 </tr>
 <tr>
@@ -4089,7 +4089,7 @@ to <code>~/.headroom/logs/proxy.log</code> — see the
 <tbody>
 <tr>
 <td><code>--db-path</code></td>
-<td><code>headroom_memory.db</code></td>
+<td><code>./.headroom/memory.db</code> if present, else <code>~/.headroom/memory.db</code></td>
 <td>Memory database path</td>
 </tr>
 <tr>
@@ -4139,7 +4139,7 @@ to <code>~/.headroom/logs/proxy.log</code> — see the
 <tbody>
 <tr>
 <td><code>--db-path</code></td>
-<td><code>headroom_memory.db</code></td>
+<td><code>./.headroom/memory.db</code> if present, else <code>~/.headroom/memory.db</code></td>
 <td>Memory database path</td>
 </tr>
 <tr>
@@ -4164,7 +4164,7 @@ to <code>~/.headroom/logs/proxy.log</code> — see the
 <tbody>
 <tr>
 <td><code>--db-path</code></td>
-<td><code>headroom_memory.db</code></td>
+<td><code>./.headroom/memory.db</code> if present, else <code>~/.headroom/memory.db</code></td>
 <td>Memory database path</td>
 </tr>
 <tr>
@@ -4194,7 +4194,7 @@ to <code>~/.headroom/logs/proxy.log</code> — see the
 </tr>
 <tr>
 <td><code>--db-path</code></td>
-<td><code>headroom_memory.db</code></td>
+<td><code>./.headroom/memory.db</code> if present, else <code>~/.headroom/memory.db</code></td>
 <td>Memory database path</td>
 </tr>
 <tr>
